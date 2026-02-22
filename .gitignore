@@ -3,7 +3,8 @@ datasets/
 data/
 models/research/*.pth
 models/research/*.pkl
-models/research/*.pkl
+models/trained/*.pth
+models/trained/*.pkl
 
 # Python
 __pycache__/

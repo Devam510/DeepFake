@@ -1,0 +1,7 @@
+{
+  "trained_at": "2026-02-08T03:45:16.222102",
+  "epochs": 10,
+  "best_val_acc": 99.70057842803675,
+  "device": "cuda",
+  "model": "EfficientNet-B0"
+}

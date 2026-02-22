@@ -1,0 +1,51 @@
+{
+  "request_id": "678751b4c30d",
+  "timestamp": "2026-02-04T10:17:14.483323+00:00",
+  "processing_time_ms": 16243.68,
+  "media_type": "image",
+  "authenticity": {
+    "score": 100.0,
+    "confidence_interval": {
+      "lower": 100.0,
+      "upper": 100.0,
+      "level": 0.95
+    },
+    "interpretation": "Strong evidence of authentic origin"
+  },
+  "source_identification": {
+    "likely_source": null,
+    "confidence": null,
+    "alternatives": [],
+    "is_human_created": true
+  },
+  "modification_analysis": {
+    "likelihood": 0.5,
+    "detected": [
+      "possible_resize",
+      "jpeg_compression"
+    ],
+    "compression_detected": true,
+    "resize_detected": true
+  },
+  "provenance": {
+    "has_provenance": false,
+    "status": "unverified",
+    "chain_length": 0,
+    "signed_links": 0,
+    "original_hash": null
+  },
+  "ensemble": {
+    "models_used": [
+      "statistical_baseline"
+    ],
+    "agreement": null,
+    "agreement_status": "not_computable",
+    "per_model_scores": null
+  },
+  "out_of_distribution": {
+    "is_ood": true,
+    "score": 100.0
+  },
+  "feature_attributions": "not_available",
+  "warnings": []
+}

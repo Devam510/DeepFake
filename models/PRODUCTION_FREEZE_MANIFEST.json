@@ -1,0 +1,63 @@
+{
+    "manifest_version": "1.0.0",
+    "freeze_timestamp": "2026-02-05T01:27:31+05:30",
+    "production_mode": true,
+    "training_disabled": true,
+    "frozen_artifacts": {
+        "model_weights": {
+            "path": "models/trained/best_classifier.pkl",
+            "version": "1.0.0",
+            "hash_sha256": "FROZEN_AT_PRODUCTION",
+            "frozen": true,
+            "reload_per_request": false
+        },
+        "calibration_parameters": {
+            "path": "models/trained/calibration_params.json",
+            "version": "1.0.0",
+            "frozen": true
+        },
+        "evaluation_report": {
+            "path": "models/trained/evaluation_report.json",
+            "version": "1.0.0",
+            "frozen": true
+        }
+    },
+    "semantic_mappings": {
+        "version": "1.0.0",
+        "frozen": true,
+        "probability_to_language": {
+            "0.0-0.2": "LOW synthetic likelihood",
+            "0.2-0.4": "MODERATE-LOW synthetic likelihood",
+            "0.4-0.6": "INCONCLUSIVE",
+            "0.6-0.8": "MODERATE-HIGH synthetic likelihood",
+            "0.8-1.0": "HIGH synthetic likelihood"
+        },
+        "uncertainty_bands": {
+            "high_confidence": "ECE < 0.05",
+            "moderate_confidence": "ECE 0.05-0.15",
+            "low_confidence": "ECE > 0.15"
+        },
+        "forbidden_language": [
+            "100% accurate",
+            "Perfect detection",
+            "Authentic",
+            "Human-made",
+            "Guaranteed",
+            "Definitely real",
+            "Definitely fake"
+        ]
+    },
+    "guards": {
+        "training_disabled_in_production": true,
+        "model_reload_per_request_disabled": true,
+        "threshold_modification_disabled": true,
+        "semantic_change_requires_version_bump": true
+    },
+    "explicit_limitations": [
+        "REAL images are unverified - authenticity unknown",
+        "Model estimates synthetic likelihood, NOT authenticity",
+        "Confidence reflects model uncertainty, NOT truth",
+        "Model trained on single StyleGAN dataset only",
+        "Calibration valid only within training distribution"
+    ]
+}

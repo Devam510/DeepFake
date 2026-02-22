@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-02-05T03:27:32.826965",
+  "model": "CNN_ResNet18",
+  "test_metrics": {
+    "accuracy": 96.43226473629782,
+    "auc": 0.9965538168338016,
+    "false_negative_rate": 0.010446343779677113,
+    "false_positive_rate": 0.06583427922814983
+  },
+  "confusion_matrix": {
+    "tn": 823,
+    "fp": 58,
+    "fn": 11,
+    "tp": 1042
+  },
+  "config": {
+    "data_dir": "d:/Devam/Microsoft VS Code/Codes/DeepFake/data/prepared",
+    "output_dir": "d:/Devam/Microsoft VS Code/Codes/DeepFake/models/trained",
+    "batch_size": 32,
+    "num_epochs": 25,
+    "learning_rate": 0.0001,
+    "image_size": 224,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "random_seed": 42
+  }
+}

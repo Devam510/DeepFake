@@ -1,0 +1,274 @@
+{
+    "alert_definitions": {
+        "version": "1.0.0",
+        "description": "Alert definitions for AI-Generated Image Risk Assessment API"
+    },
+    "alerts": {
+        "service_health": [
+            {
+                "name": "HighErrorRate5xx",
+                "description": "Server error rate exceeds threshold",
+                "condition": "error_rate_5xx > 5% for 5 minutes",
+                "severity": "CRITICAL",
+                "action": "Page on-call immediately",
+                "notification": [
+                    "pager",
+                    "slack"
+                ],
+                "runbook": "Check model status, review recent deployments, check resource limits"
+            },
+            {
+                "name": "HighErrorRate4xx",
+                "description": "Client error rate exceeds threshold",
+                "condition": "error_rate_4xx > 20% for 5 minutes",
+                "severity": "WARNING",
+                "action": "Notify team",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Review error types, check for malformed requests, verify client integrations"
+            },
+            {
+                "name": "HighLatencyP95",
+                "description": "95th percentile latency spike",
+                "condition": "latency_p95_ms > 2000 for 5 minutes",
+                "severity": "WARNING",
+                "action": "Investigate",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check resource utilization, review concurrent requests, check model inference time"
+            },
+            {
+                "name": "HighLatencyP99",
+                "description": "99th percentile latency critical",
+                "condition": "latency_p99_ms > 5000 for 5 minutes",
+                "severity": "CRITICAL",
+                "action": "Page on-call",
+                "notification": [
+                    "pager",
+                    "slack"
+                ],
+                "runbook": "Immediate investigation, consider scaling, check for blocking operations"
+            },
+            {
+                "name": "TimeoutSpike",
+                "description": "Elevated request timeouts",
+                "condition": "timeout_count > 10 in 5 minutes",
+                "severity": "WARNING",
+                "action": "Investigate",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check large image processing, review timeout configuration"
+            },
+            {
+                "name": "ModelNotLoaded",
+                "description": "Model failed to load or crashed",
+                "condition": "model_loaded == false",
+                "severity": "CRITICAL",
+                "action": "Page immediately",
+                "notification": [
+                    "pager",
+                    "slack",
+                    "email"
+                ],
+                "runbook": "Restart service, check model file integrity, verify disk space"
+            },
+            {
+                "name": "ServiceDown",
+                "description": "No requests received during expected hours",
+                "condition": "request_count == 0 for 5 minutes (during business hours)",
+                "severity": "CRITICAL",
+                "action": "Page on-call",
+                "notification": [
+                    "pager",
+                    "slack"
+                ],
+                "runbook": "Check service status, verify network connectivity, check load balancer"
+            }
+        ],
+        "output_distribution": [
+            {
+                "name": "ProbabilityDistributionShift",
+                "description": "Probability distribution deviates from baseline",
+                "condition": "probability_mean_rolling differs > 2σ from 7-day baseline",
+                "severity": "WARNING",
+                "action": "Investigate input distribution changes",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Compare input characteristics, check for new traffic sources, review sample outputs"
+            },
+            {
+                "name": "BorderlineRateSpike",
+                "description": "Excessive borderline results",
+                "condition": "borderline_rate > 60% for 1 hour",
+                "severity": "WARNING",
+                "action": "Review input quality",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check input resolution/format distribution, review sample images metadata"
+            },
+            {
+                "name": "BorderlineRateCollapse",
+                "description": "Unusually low borderline rate",
+                "condition": "borderline_rate < 10% for 1 hour",
+                "severity": "WARNING",
+                "action": "Check model behavior",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Verify model is running correctly, check for threshold issues"
+            },
+            {
+                "name": "HighProbabilitySpike",
+                "description": "Sudden increase in high probability results",
+                "condition": "high_bucket_rate > 80% for 1 hour",
+                "severity": "WARNING",
+                "action": "Investigate traffic source",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check for targeted uploads, review input characteristics"
+            },
+            {
+                "name": "LowProbabilitySpike",
+                "description": "Sudden increase in low probability results",
+                "condition": "low_bucket_rate > 80% for 1 hour",
+                "severity": "WARNING",
+                "action": "Investigate traffic source",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check for testing traffic, review input characteristics"
+            },
+            {
+                "name": "ConfidenceIntervalWidening",
+                "description": "Increased uncertainty in results",
+                "condition": "wide_ci_rate > 30% for 1 hour",
+                "severity": "WARNING",
+                "action": "Check input quality",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Review input resolution distribution, check for unusual image types"
+            }
+        ],
+        "semantic_integrity": [
+            {
+                "name": "MissingVersionMetadata",
+                "description": "Response missing required version info",
+                "condition": "missing_version_metadata > 0",
+                "severity": "CRITICAL",
+                "action": "Immediate fix required",
+                "notification": [
+                    "pager",
+                    "slack"
+                ],
+                "runbook": "Check response serialization, verify API code integrity"
+            },
+            {
+                "name": "SemanticVersionMismatch",
+                "description": "Semantic version differs from expected",
+                "condition": "semantic_version != '1.0.0'",
+                "severity": "CRITICAL",
+                "action": "Verify deployment, consider rollback",
+                "notification": [
+                    "pager",
+                    "slack"
+                ],
+                "runbook": "Check deployment, verify correct model is loaded"
+            },
+            {
+                "name": "InconclusiveRateAnomaly",
+                "description": "Inconclusive interpretation rate changed significantly",
+                "condition": "inconclusive_rate differs > 3σ from baseline",
+                "severity": "WARNING",
+                "action": "Investigate",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Review probability distribution, check interpretation mapping"
+            }
+        ],
+        "misuse_patterns": [
+            {
+                "name": "HighRateClient",
+                "description": "Single client exceeding rate limit",
+                "condition": "any IP > 100 requests/minute for 5 minutes",
+                "severity": "WARNING",
+                "action": "Review for potential abuse",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Review client pattern, consider rate limiting, NO automatic blocking"
+            },
+            {
+                "name": "BurstTraffic",
+                "description": "Sudden traffic spike",
+                "condition": "request_count > 10x baseline in 1 minute",
+                "severity": "WARNING",
+                "action": "Review traffic source",
+                "notification": [
+                    "slack"
+                ],
+                "runbook": "Check for legitimate usage, review client distribution"
+            },
+            {
+                "name": "RepeatedUploadPattern",
+                "description": "Potential automated testing pattern",
+                "condition": "same resolution+size pattern > 50x from single IP",
+                "severity": "INFO",
+                "action": "Log for review",
+                "notification": [
+                    "dashboard_only"
+                ],
+                "runbook": "Review during next business day, check for testing behavior"
+            },
+            {
+                "name": "AutomationSuspected",
+                "description": "Regular interval requests detected",
+                "condition": "requests at regular intervals from IP for > 30 minutes",
+                "severity": "INFO",
+                "action": "Log for review",
+                "notification": [
+                    "dashboard_only"
+                ],
+                "runbook": "Review client behavior, may be legitimate integration"
+            }
+        ]
+    },
+    "escalation_policy": {
+        "CRITICAL": {
+            "response_time": "immediate",
+            "notification_channels": [
+                "pager",
+                "slack",
+                "email"
+            ],
+            "escalation_after": "15 minutes if unacknowledged"
+        },
+        "WARNING": {
+            "response_time": "30 minutes",
+            "notification_channels": [
+                "slack"
+            ],
+            "escalation_after": "2 hours if unresolved"
+        },
+        "INFO": {
+            "response_time": "next business day",
+            "notification_channels": [
+                "dashboard"
+            ],
+            "escalation_after": "none"
+        }
+    },
+    "baseline_configuration": {
+        "calculation_period": "7 days rolling",
+        "recalculation_frequency": "daily",
+        "exclude_anomalous_periods": true,
+        "minimum_samples_for_baseline": 1000
+    }
+}

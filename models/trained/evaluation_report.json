@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-02-05T02:13:20.534596",
+  "best_model": "GradientBoosting",
+  "all_results": {
+    "RandomForest": {
+      "val_auc": 0.7289558365788009,
+      "test_auc": 0.7415615782820681
+    },
+    "GradientBoosting": {
+      "val_auc": 0.7368002732422383,
+      "test_auc": 0.738876503770713
+    },
+    "LogisticRegression": {
+      "val_auc": 0.6429172905196543,
+      "test_auc": 0.6673366812565031
+    }
+  },
+  "test_evaluation": {
+    "roc_auc": 0.738876503770713,
+    "false_negative_rate": 0.17567567567567569,
+    "false_positive_rate": 0.48552338530066813,
+    "calibration_error_ece": 0.019345027362327405,
+    "confusion_matrix": {
+      "tn": 462,
+      "fp": 436,
+      "fn": 182,
+      "tp": 854
+    }
+  },
+  "data_summary": {
+    "train": 9023,
+    "val": 1933,
+    "test": 1934
+  },
+  "explicit_limitations": [
+    "REAL images are unverified - source authenticity not proven",
+    "Model estimates synthetic likelihood, NOT authenticity",
+    "Confidence reflects model uncertainty, NOT truth"
+  ]
+}

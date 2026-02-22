@@ -1,0 +1,74 @@
+{
+    "example_request": {
+        "endpoint": "POST /analyze/image",
+        "content_type": "multipart/form-data",
+        "body": {
+            "file": "<binary image data>"
+        }
+    },
+    "example_response": {
+        "synthetic_probability": 0.7234,
+        "confidence_interval": {
+            "lower": 0.6942,
+            "upper": 0.7512,
+            "level": 0.95
+        },
+        "interpretation": "MODERATE-HIGH synthetic likelihood",
+        "uncertainty_notice": "This probability estimate reflects model uncertainty, not ground truth. Images labeled as 'real_unverified' in training data were not proven to be non-synthetic. High confidence does not guarantee correctness.",
+        "model_version": "1.0.0",
+        "semantic_version": "1.0.0",
+        "api_version": "1.0.0",
+        "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "timestamp": "2026-02-05T01:30:00.000000"
+    },
+    "example_health": {
+        "endpoint": "GET /health",
+        "response": {
+            "service_status": "healthy",
+            "model_loaded": true,
+            "uptime_seconds": 3600.00,
+            "model_version": "1.0.0",
+            "semantic_version": "1.0.0",
+            "api_version": "1.0.0"
+        }
+    },
+    "example_capabilities": {
+        "endpoint": "GET /capabilities",
+        "response": {
+            "can_do": [
+                "Estimate probability that an image is AI-generated (synthetic)",
+                "Provide confidence intervals for probability estimates",
+                "Detect StyleGAN-generated face images with moderate accuracy",
+                "Process JPEG, PNG, and WebP images up to 10MB"
+            ],
+            "cannot_do": [
+                "Prove an image is authentic or human-made",
+                "Provide binary real/fake verdicts",
+                "Guarantee 100% accuracy",
+                "Detect all types of AI-generated images",
+                "Analyze videos or audio",
+                "Detect deepfakes in video format"
+            ],
+            "known_limitations": [
+                "Model trained on single StyleGAN dataset only",
+                "REAL training images were unverified - authenticity unknown",
+                "Hand-crafted features may miss generator-specific artifacts",
+                "Calibration valid only within training distribution",
+                "Performance varies by image resolution and compression",
+                "Augmented images may produce unexpected results"
+            ],
+            "intended_use": "This API provides probability estimates for research and informational purposes. It should NOT be used as sole evidence for legal, journalistic, or high-stakes decisions. Always combine with human review and additional verification methods.",
+            "model_version": "1.0.0",
+            "semantic_version": "1.0.0",
+            "api_version": "1.0.0"
+        }
+    },
+    "example_error": {
+        "endpoint": "POST /analyze/image (invalid file)",
+        "response": {
+            "error": "INVALID_CONTENT_TYPE",
+            "message": "Allowed types: image/jpeg, image/png, image/webp",
+            "request_id": "x1y2z3w4-5678-90ab-cdef-ghij12345678"
+        }
+    }
+}
