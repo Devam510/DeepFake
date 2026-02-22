@@ -136,8 +136,4 @@ DeepFake/
 - **Temperature Scaling**: Calibrated probability outputs (T=1.157)
 - **Inference**: GPU accelerated with cached model loading
 
----
 
-## 📝 License
-
-MIT License — see [LICENSE](LICENSE) for details.
