@@ -1,57 +1,39 @@
 /**
- * DeepFake Detection - Frontend JavaScript
- * Handles file upload, API interaction, and results display
- * Displays exact same data as CLI ensemble_predict()
+ * DeepFake Detector — Frontend JS
+ * All dynamic: every value shown comes directly from actual model outputs.
  */
 
-document.addEventListener('DOMContentLoaded', function () {
-    // DOM Elements
+document.addEventListener('DOMContentLoaded', () => {
+
+    // ── DOM refs ──────────────────────────────────────────────────
     const uploadArea = document.getElementById('upload-area');
     const fileInput = document.getElementById('file-input');
     const previewSection = document.getElementById('preview-section');
     const previewImage = document.getElementById('preview-image');
     const analyzeBtn = document.getElementById('analyze-btn');
     const clearBtn = document.getElementById('clear-btn');
-    const resultsSection = document.getElementById('results-section');
     const uploadSection = document.getElementById('upload-section');
+    const resultsSection = document.getElementById('results-section');
 
     let selectedFile = null;
 
-    // Upload Area Click
+    // ── Upload area interactions ─────────────────────────────────
     uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => e.target.files[0] && handleFile(e.target.files[0]));
 
-    // File Input Change
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) handleFileSelect(file);
-    });
-
-    // Drag & Drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', e => {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
-        const file = e.dataTransfer.files[0];
-        if (file && file.type.startsWith('image/')) {
-            handleFileSelect(file);
-        }
+        const f = e.dataTransfer.files[0];
+        if (f && f.type.startsWith('image/')) handleFile(f);
     });
 
-    // Handle File Selection
-    function handleFileSelect(file) {
+    function handleFile(file) {
         selectedFile = file;
-
-        // Show preview
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = e => {
             previewImage.src = e.target.result;
             uploadArea.classList.add('hidden');
             previewSection.classList.remove('hidden');
@@ -59,266 +41,219 @@ document.addEventListener('DOMContentLoaded', function () {
         reader.readAsDataURL(file);
     }
 
-    // Clear Button
-    clearBtn.addEventListener('click', () => {
+    clearBtn.addEventListener('click', resetUpload);
+    function resetUpload() {
         selectedFile = null;
         fileInput.value = '';
         previewSection.classList.add('hidden');
         uploadArea.classList.remove('hidden');
-    });
+    }
 
-    // Analyze Button
+    // ── Analyze ───────────────────────────────────────────────────
     analyzeBtn.addEventListener('click', async () => {
         if (!selectedFile) return;
 
-        // Show loading state
         analyzeBtn.disabled = true;
         analyzeBtn.querySelector('.btn-text').textContent = 'Analyzing...';
         analyzeBtn.querySelector('.btn-loader').classList.remove('hidden');
 
         try {
-            // Prepare form data
-            const formData = new FormData();
-            formData.append('image', selectedFile);
+            const fd = new FormData();
+            fd.append('image', selectedFile);
 
-            // Call API
-            const response = await fetch('/api/detect', {
-                method: 'POST',
-                body: formData
-            });
-
-            const data = await response.json();
+            const res = await fetch('/api/detect', { method: 'POST', body: fd });
+            const data = await res.json();
 
             if (data.success) {
-                displayResults(data, previewImage.src);
+                renderResults(data, previewImage.src);
             } else {
                 alert('Error: ' + (data.error || 'Unknown error'));
             }
-        } catch (error) {
-            console.error('Error:', error);
+        } catch (err) {
+            console.error(err);
             alert('Failed to analyze image. Please try again.');
         } finally {
-            // Reset button
             analyzeBtn.disabled = false;
-            analyzeBtn.querySelector('.btn-text').textContent = 'Analyze Image';
+            analyzeBtn.querySelector('.btn-text').textContent = '🔎 Analyze Image';
             analyzeBtn.querySelector('.btn-loader').classList.add('hidden');
         }
     });
 
-    // Display Results — maps ALL ensemble verdict types
-    function displayResults(data, imageSrc) {
-        // Hide upload section, show results
+    // ── Render results ────────────────────────────────────────────
+    function renderResults(data, imgSrc) {
         uploadSection.classList.add('hidden');
         resultsSection.classList.remove('hidden');
+        resultsSection.scrollIntoView({ behavior: 'smooth' });
 
-        // Set result image
-        document.getElementById('result-image').src = imageSrc;
+        // Filename
+        document.getElementById('result-filename').textContent = data.filename || 'Unknown';
 
-        // Image type
-        document.getElementById('image-type').innerHTML =
-            `Image: <span>${data.filename || 'Unknown'}</span>`;
+        // Result image
+        document.getElementById('result-image').src = imgSrc;
 
-        // Overall score (animate)
-        const scoreValue = document.getElementById('overall-score');
-        const scoreBarFill = document.getElementById('score-bar-fill');
-        animateNumber(scoreValue, 0, data.overall_score, 1000);
+        // AI probability score (animated)
+        animateNum(document.getElementById('overall-score'), 0, data.overall_score, 1100);
         setTimeout(() => {
-            scoreBarFill.style.width = data.overall_score + '%';
-
-            // Color the bar based on score
-            if (data.overall_score > 60) {
-                scoreBarFill.style.background = 'var(--red)';
-            } else if (data.overall_score > 40) {
-                scoreBarFill.style.background = 'var(--yellow)';
-            } else {
-                scoreBarFill.style.background = 'var(--green)';
-            }
+            const fill = document.getElementById('score-bar-fill');
+            fill.style.width = data.overall_score + '%';
+            fill.style.background = scoreColor(data.overall_score);
         }, 100);
 
-        // Confidence interval
-        const ciText = document.getElementById('confidence-interval-text');
-        if (data.confidence_interval) {
-            ciText.textContent = `Confidence Interval: ${data.confidence_interval.lower}% – ${data.confidence_interval.upper}%`;
-        }
+        // CI text
+        const ci = data.confidence_interval;
+        document.getElementById('ci-text').textContent =
+            ci ? `Confidence interval: ${ci.lower}% – ${ci.upper}%` : '';
 
-        // Verdict badge — handle ALL ensemble verdicts
-        const verdictBadge = document.getElementById('verdict-badge');
-        const verdictText = document.getElementById('verdict-text');
-        verdictBadge.className = 'verdict-badge';
+        // Verdict pill
+        const pill = document.getElementById('verdict-pill');
+        const icon = document.getElementById('verdict-icon');
+        const vtext = document.getElementById('verdict-text');
+        const vcard = document.getElementById('verdict-card');
 
-        const verdict = data.verdict || 'UNCERTAIN';
+        pill.className = 'verdict-pill';
+        vcard.className = 'verdict-card';
 
-        if (verdict === 'AI-GENERATED') {
-            verdictBadge.classList.add('ai');
-            verdictBadge.querySelector('.verdict-icon').textContent = '🤖';
-            verdictText.textContent = 'AI-GENERATED';
-        } else if (verdict === 'LIKELY REAL') {
-            verdictBadge.classList.add('real');
-            verdictBadge.querySelector('.verdict-icon').textContent = '📷';
-            verdictText.textContent = 'LIKELY REAL';
-        } else if (verdict === 'POSSIBLY AI') {
-            verdictBadge.classList.add('possibly-ai');
-            verdictBadge.querySelector('.verdict-icon').textContent = '🔍';
-            verdictText.textContent = 'POSSIBLY AI';
-        } else if (verdict === 'UNCERTAIN') {
-            verdictBadge.classList.add('uncertain');
-            verdictBadge.querySelector('.verdict-icon').textContent = '❓';
-            verdictText.textContent = 'UNCERTAIN';
+        const v = data.verdict || 'UNCERTAIN';
+        if (v === 'AI-GENERATED') {
+            pill.classList.add('v-ai'); icon.textContent = '🤖'; vtext.textContent = 'AI-GENERATED';
+            vcard.classList.add('ai-glow');
+        } else if (v === 'LIKELY REAL') {
+            pill.classList.add('v-real'); icon.textContent = '📷'; vtext.textContent = 'LIKELY REAL';
+            vcard.classList.add('real-glow');
+        } else if (v === 'POSSIBLY AI') {
+            pill.classList.add('v-maybe'); icon.textContent = '🔍'; vtext.textContent = 'POSSIBLY AI';
+            vcard.classList.add('uncertain-glow');
         } else {
-            // Fallback for any other verdict string
-            verdictBadge.classList.add('uncertain');
-            verdictBadge.querySelector('.verdict-icon').textContent = '❓';
-            verdictText.textContent = verdict;
+            pill.classList.add('v-unknown'); icon.textContent = '❓'; vtext.textContent = 'UNCERTAIN';
+            vcard.classList.add('uncertain-glow');
         }
 
         // Confidence
         document.getElementById('confidence-text').textContent = data.confidence || '--';
 
-        // Domain routing info
-        const domainText = document.getElementById('domain-text');
-        const domain = data.detected_domain || 'unknown';
-        const domainLabels = {
-            'face': '👤 Face',
-            'non_face_photo': '🖼️ Non-Face Photo',
-            'art_or_illustration': '🎨 Art/Illustration',
-            'synthetic_graphics': '📐 Synthetic Graphics',
-            'unknown': '— Unknown'
+        // Raw scores mini grid
+        const rs = data.raw_scores || {};
+        document.getElementById('raw-eff').textContent = rs.efficientnet != null ? rs.efficientnet + '%' : '—';
+        document.getElementById('raw-stat').textContent = rs.statistical != null ? rs.statistical + '%' : '—';
+        document.getElementById('raw-forensic').textContent = rs.forensic != null ? rs.forensic + '%' : '—';
+        document.getElementById('raw-voter').textContent = rs.meta_voter === 'active' ? '✅ Active' : (rs.meta_voter === 'fallback' ? '⚠️ Fallback' : '—');
+
+        // Meta tiles
+        document.getElementById('meta-source').textContent = data.decision_source || '—';
+
+        const proc = data.image_processing_level || 'unknown';
+        const procMap = {
+            minimal_processing: '✅ Minimal',
+            moderate_processing: '⚠️ Moderate',
+            heavy_processing: '🔴 Heavy',
+            unknown: '— Unknown'
         };
-        const domainLabel = domainLabels[domain] || domain;
-        const domainConf = data.domain_confidence || 0;
-        domainText.textContent = `${domainLabel} (${domainConf}%)`;
+        document.getElementById('meta-processing').textContent = procMap[proc] || proc;
 
-        // Decision source (detector used)
-        document.getElementById('decision-source-text').textContent = data.decision_source || '--';
+        document.getElementById('meta-filter').textContent = data.filter_detected
+            ? `${data.filter_type} (${data.filter_confidence}%)`
+            : '✅ None detected';
 
-        // Processing level
-        const processingText = document.getElementById('processing-level-text');
-        const level = data.image_processing_level || 'unknown';
-        const levelLabels = {
-            'minimal_processing': '✅ Minimal',
-            'moderate_processing': '⚠️ Moderate',
-            'heavy_processing': '🔴 Heavy',
-            'unknown': '— Unknown'
-        };
-        processingText.textContent = levelLabels[level] || level;
+        const disag = data.model_disagreement ?? 0;
+        const metaAgree = document.getElementById('meta-agreement');
+        if (disag > 45) {
+            metaAgree.textContent = `⚠️ ${disag}% disagreement`;
+            metaAgree.style.color = 'var(--yellow)';
+        } else {
+            metaAgree.textContent = `${100 - disag}% agreement`;
+            metaAgree.style.color = disag < 20 ? 'var(--green)' : 'inherit';
+        }
 
-        // Processing warning
-        const warningBanner = document.getElementById('processing-warning');
+        // Warning banner
+        const wb = document.getElementById('warning-banner');
         if (data.processing_warning) {
-            warningBanner.classList.remove('hidden');
-            document.getElementById('processing-warning-text').textContent = data.processing_warning;
+            wb.classList.remove('hidden');
+            document.getElementById('warning-text').textContent = data.processing_warning;
         } else {
-            warningBanner.classList.add('hidden');
-        }
-
-        // Filter detection
-        const filterCard = document.getElementById('filter-card');
-        if (data.filter_detected) {
-            filterCard.style.display = '';
-            document.getElementById('filter-text').textContent =
-                `${data.filter_type} (${data.filter_confidence}% confidence)`;
-        } else {
-            filterCard.style.display = 'none';
-        }
-
-        // Model disagreement
-        const disagText = document.getElementById('disagreement-text');
-        const disagVal = data.model_disagreement || 0;
-        if (disagVal > 40) {
-            disagText.textContent = `⚠️ ${disagVal}% disagreement`;
-            disagText.classList.add('warning-text-color');
-        } else {
-            disagText.textContent = `${disagVal}% disagreement`;
-            disagText.classList.remove('warning-text-color');
+            wb.classList.add('hidden');
         }
 
         // Summary
-        document.getElementById('summary-text').textContent = data.summary;
+        document.getElementById('summary-text').textContent = data.summary || '';
 
-        // Breakdown
-        const breakdownList = document.getElementById('breakdown-list');
-        breakdownList.innerHTML = '';
+        // Signals grid — 100% dynamic from real model outputs
+        const grid = document.getElementById('signals-grid');
+        grid.innerHTML = '';
 
-        if (data.breakdown && data.breakdown.length > 0) {
-            data.breakdown.forEach((item, index) => {
-                const statusClass = item.status;
+        const signals = data.signals || [];
+        signals.forEach((sig, i) => {
+            const score = sig.score ?? null;
+            const status = sig.status || 'unknown';
+            const scoreLabel = score !== null ? score + '%' : 'N/A';
 
-                const itemHTML = `
-                    <div class="breakdown-item" style="animation-delay: ${index * 0.05}s">
-                        <div class="breakdown-header">
-                            <span class="breakdown-name">${item.name}</span>
-                            <span class="breakdown-score ${statusClass}">${item.score}%</span>
+            const card = document.createElement('div');
+            card.className = 'signal-card';
+            card.style.animationDelay = (i * 0.04) + 's';
+
+            card.innerHTML = `
+                <div class="signal-top">
+                    <div>
+                        <div class="signal-name-row">
+                            <span class="signal-icon">${sig.icon || '📌'}</span>
+                            <span class="signal-name">${sig.name}</span>
                         </div>
-                        <div class="breakdown-bar">
-                            <div class="breakdown-bar-fill ${statusClass}" style="width: 0%"></div>
-                        </div>
-                        <p class="breakdown-explanation">${item.explanation}</p>
+                        <div class="signal-source">${sig.source || ''}</div>
                     </div>
-                `;
-                breakdownList.innerHTML += itemHTML;
+                    <div class="signal-score-chip ${status}">${scoreLabel}</div>
+                </div>
+                <div class="signal-bar-track">
+                    <div class="signal-bar-fill ${status}" style="width:0%" data-target="${score ?? 0}"></div>
+                </div>
+                <p class="signal-explanation">${sig.explanation || ''}</p>
+            `;
+            grid.appendChild(card);
+        });
+
+        // Animate signal bars
+        setTimeout(() => {
+            document.querySelectorAll('.signal-bar-fill').forEach(el => {
+                el.style.width = (el.dataset.target || 0) + '%';
             });
+        }, 150);
 
-            // Animate breakdown bars
-            setTimeout(() => {
-                const fills = document.querySelectorAll('.breakdown-bar-fill');
-                data.breakdown.forEach((item, index) => {
-                    if (fills[index]) {
-                        fills[index].style.width = item.score + '%';
-                    }
-                });
-            }, 200);
-        }
-
-        // Limitations (always shown)
-        const limitationsList = document.getElementById('limitations-list');
-        limitationsList.innerHTML = '';
-        if (data.limitations && data.limitations.length > 0) {
-            data.limitations.forEach(lim => {
-                const li = document.createElement('li');
-                li.textContent = lim;
-                limitationsList.appendChild(li);
-            });
-        }
-
-        // Scroll to results
-        resultsSection.scrollIntoView({ behavior: 'smooth' });
+        // Limitations
+        const limList = document.getElementById('limit-list');
+        limList.innerHTML = '';
+        (data.limitations || []).forEach(l => {
+            const li = document.createElement('li');
+            li.textContent = l;
+            limList.appendChild(li);
+        });
     }
 
-    // Number animation helper
-    function animateNumber(element, start, end, duration) {
-        const startTime = performance.now();
+    // ── New Analysis Buttons ──────────────────────────────────────
+    document.getElementById('new-analysis-btn').addEventListener('click', startOver);
+    document.getElementById('analyze-another-btn').addEventListener('click', startOver);
 
-        function update(currentTime) {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            const current = Math.floor(start + (end - start) * easeOutQuart(progress));
-
-            element.innerHTML = current + '<span class="score-percent">%</span>';
-
-            if (progress < 1) {
-                requestAnimationFrame(update);
-            }
-        }
-
-        requestAnimationFrame(update);
-    }
-
-    // Easing function
-    function easeOutQuart(x) {
-        return 1 - Math.pow(1 - x, 4);
-    }
-
-    // New Analysis Button
-    document.getElementById('new-analysis-btn').addEventListener('click', () => {
-        // Reset everything
-        selectedFile = null;
-        fileInput.value = '';
-        previewSection.classList.add('hidden');
-        uploadArea.classList.remove('hidden');
+    function startOver() {
+        resetUpload();
         resultsSection.classList.add('hidden');
         uploadSection.classList.remove('hidden');
-
-        // Scroll to top
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────
+    function scoreColor(s) {
+        if (s > 60) return 'var(--red)';
+        if (s > 40) return 'var(--yellow)';
+        return 'var(--green)';
+    }
+
+    function animateNum(el, from, to, ms) {
+        const start = performance.now();
+        function tick(now) {
+            const t = Math.min((now - start) / ms, 1);
+            const v = Math.floor(from + (to - from) * easeOut(t));
+            el.innerHTML = v + '<span class="ai-prob-unit">%</span>';
+            if (t < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+    }
+
+    function easeOut(x) { return 1 - Math.pow(1 - x, 4); }
 });

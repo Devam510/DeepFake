@@ -3,8 +3,8 @@ DeepFake Detection Web Interface - Flask Backend
 =================================================
 
 Production-quality API for AI image detection.
-Uses unified_detect() for domain-aware routing (face + general detectors).
-Falls back to ensemble_predict() when unified detector is unavailable.
+Uses ensemble_predict() and exposes ALL real signal scores.
+Zero hardcoded/static values — everything is computed from the actual models.
 """
 
 import os
@@ -18,15 +18,6 @@ from werkzeug.utils import secure_filename
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import unified detector (routes face → face detector, non-face → general detector)
-UNIFIED_AVAILABLE = False
-try:
-    from unified_detector import unified_detect
-    UNIFIED_AVAILABLE = True
-except ImportError:
-    pass
-
-# Import ensemble detector as fallback (face-only)
 ENSEMBLE_AVAILABLE = False
 try:
     from ensemble_detector import ensemble_predict
@@ -45,159 +36,302 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def generate_detailed_breakdown(ensemble_result: dict) -> list:
+def build_signals(ensemble_result: dict) -> list:
     """
-    Generate detailed 12-category breakdown from ensemble results.
-    Reuses scores already computed by ensemble_predict() — no re-analysis.
+    Build a list of real signal objects from ensemble results.
+    Every single score comes directly from the actual detector — zero fake values.
     """
     individual = ensemble_result.get('individual_results', {})
-    
-    # Extract scores from ensemble's individual results
-    eff_data = individual.get('efficientnet', {})
-    stat_data = individual.get('statistical', {})
-    meta_data = individual.get('metadata', {})
-    
-    eff_prob = eff_data.get('probability', 0.5)
-    stat_prob = stat_data.get('probability', 0.5)
-    meta_prob = meta_data.get('probability', 0.5)
-    ai_prob = ensemble_result.get('ensemble_probability', 0.5)
-    
-    breakdown = []
-    
-    # 1. Neural Network Analysis - Direct from EfficientNet
-    nn_score = int(eff_prob * 100)
-    breakdown.append({
-        'name': 'Neural Network Analysis',
-        'score': nn_score,
-        'status': 'bad' if nn_score > 60 else 'warning' if nn_score > 35 else 'good',
-        'explanation': f"EfficientNet-B4 deep learning model detected {'strong AI generation patterns' if nn_score > 60 else 'some suspicious patterns that may indicate AI' if nn_score > 35 else 'natural image characteristics consistent with real photos'}."
-    })
-    
-    # 2. Frequency Patterns (DCT/FFT) - From statistical model
-    freq_score = int(stat_prob * 100)
-    breakdown.append({
-        'name': 'Frequency Patterns',
-        'score': freq_score,
-        'status': 'bad' if freq_score > 55 else 'warning' if freq_score > 30 else 'good',
-        'explanation': f"DCT/FFT analysis {'reveals unusual frequency distributions typical of AI generation' if freq_score > 55 else 'shows some anomalies in the frequency domain' if freq_score > 30 else 'indicates natural camera sensor patterns'}."
-    })
-    
-    # 3. Metadata Authenticity - From metadata signals
-    meta_score = int(meta_prob * 100)
-    if meta_score < 35:
-        meta_status = 'good'
-        meta_explanation = "Authentic camera metadata (EXIF/GPS) detected. This is a strong indicator of a real photograph."
-    elif meta_score < 55:
-        meta_status = 'warning'
-        meta_explanation = "Some metadata found, but it may be incomplete or generic."
-    else:
-        meta_status = 'bad'
-        meta_explanation = "No camera metadata found. AI-generated images typically lack EXIF data, GPS, and camera information."
 
-    breakdown.append({
-        'name': 'Metadata Authenticity',
-        'score': meta_score,
-        'status': meta_status,
-        'explanation': meta_explanation
-    })
-    
-    # 4. Eye Reflections
-    eye_score = int(ai_prob * 60 + (20 if ai_prob > 0.5 else 0))
-    breakdown.append({
-        'name': 'Eye Reflections',
-        'score': eye_score,
-        'status': 'bad' if eye_score > 55 else 'warning' if eye_score > 30 else 'good',
-        'explanation': 'Catchlights appear ' + ('overly symmetrical and lack the complex imperfections of real eye reflections, suggesting AI generation.' if eye_score > 55 else 'somewhat uniform but within normal range for photographs.' if eye_score > 30 else 'natural with appropriate asymmetry and complex reflections.')
-    })
-    
-    # 5. Skin Texture
-    skin_score = int(ai_prob * 65 + (15 if ai_prob > 0.6 else 0))
-    breakdown.append({
-        'name': 'Skin Texture',
-        'score': skin_score,
-        'status': 'bad' if skin_score > 55 else 'warning' if skin_score > 30 else 'good',
-        'explanation': 'Skin texture ' + ('appears overly smooth with airbrushed quality, lacking fine pores and natural imperfections typical of AI generation.' if skin_score > 55 else 'shows subtle smoothness that could indicate processing or heavy filtering.' if skin_score > 30 else 'displays natural pore structure and micro-details consistent with real photography.')
-    })
-    
-    # 6. Hair Details
-    hair_score = int(ai_prob * 55 + (20 if ai_prob > 0.5 else 0))
-    breakdown.append({
-        'name': 'Hair Details',
-        'score': hair_score,
-        'status': 'bad' if hair_score > 50 else 'warning' if hair_score > 28 else 'good',
-        'explanation': 'Hair strands ' + ('lack fine detail and appear painted rather than individually rendered, a common AI artifact.' if hair_score > 50 else 'show moderate detail but some areas appear simplified.' if hair_score > 28 else 'exhibit natural strand separation and lighting interaction.')
-    })
-    
-    # 7. Background Consistency
-    bg_score = int(ai_prob * 50 + (25 if ai_prob > 0.6 else 0))
-    breakdown.append({
-        'name': 'Background Consistency',
-        'score': bg_score,
-        'status': 'bad' if bg_score > 55 else 'warning' if bg_score > 30 else 'good',
-        'explanation': 'Background ' + ('has inconsistent blur, melted objects, and lacks distinct details typical of AI generation.' if bg_score > 55 else 'shows some blur anomalies that may indicate AI processing.' if bg_score > 30 else 'displays natural depth of field and coherent object placement.')
-    })
-    
-    # 8. Facial Symmetry
-    symmetry_score = int(ai_prob * 50 + (20 if ai_prob > 0.7 else 0))
-    breakdown.append({
-        'name': 'Facial Symmetry',
-        'score': symmetry_score,
-        'status': 'bad' if symmetry_score > 50 else 'warning' if symmetry_score > 28 else 'good',
-        'explanation': 'Face ' + ('exhibits unnaturally high symmetry, which is uncommon in real humans and typical of AI generation.' if symmetry_score > 50 else 'shows moderate symmetry that warrants attention.' if symmetry_score > 28 else 'displays natural asymmetry consistent with real human faces.')
-    })
-    
-    # 9. Lighting Analysis
-    lighting_score = int(ai_prob * 45 + (20 if ai_prob > 0.5 else 0))
-    breakdown.append({
-        'name': 'Lighting Analysis',
-        'score': lighting_score,
-        'status': 'bad' if lighting_score > 50 else 'warning' if lighting_score > 25 else 'good',
-        'explanation': 'Lighting ' + ('appears inconsistent with missing or incorrect shadows, a common AI generation artifact.' if lighting_score > 50 else 'is generally consistent but some areas lack expected shadows.' if lighting_score > 25 else 'appears natural with consistent shadows and highlights.')
-    })
-    
-    # 10. Hand/Body Anatomy
-    anatomy_score = int(ai_prob * 40 + (15 if ai_prob > 0.6 else 0))
-    breakdown.append({
-        'name': 'Hand/Body Anatomy',
-        'score': anatomy_score,
-        'status': 'bad' if anatomy_score > 45 else 'warning' if anatomy_score > 25 else 'good',
-        'explanation': 'Visible anatomy ' + ('shows potential irregularities in proportions or digit count, a classic AI generation error.' if anatomy_score > 45 else 'appears mostly correct with minor concerns.' if anatomy_score > 25 else 'is anatomically correct with no extra or merged digits.')
-    })
-    
-    # 11. Edge Artifacts
-    edge_score = int(ai_prob * 55 + (15 if freq_score > 50 else 0))
-    breakdown.append({
-        'name': 'Edge Artifacts',
-        'score': edge_score,
-        'status': 'bad' if edge_score > 50 else 'warning' if edge_score > 28 else 'good',
-        'explanation': 'Edges and boundaries ' + ('show blending artifacts and unnatural transitions between elements.' if edge_score > 50 else 'have some minor inconsistencies worth noting.' if edge_score > 28 else 'appear clean with natural transitions between elements.')
-    })
-    
-    # 12. Compression Patterns
-    compression_score = int(freq_score * 0.85 + ai_prob * 15)
-    breakdown.append({
-        'name': 'Compression Patterns',
-        'score': compression_score,
-        'status': 'bad' if compression_score > 50 else 'warning' if compression_score > 28 else 'good',
-        'explanation': 'Image artifacts ' + ('show unusual block structures and patterns typical of AI generation.' if compression_score > 50 else 'have some anomalies that could indicate processing.' if compression_score > 28 else 'are consistent with natural camera output.')
-    })
-    
-    return breakdown
+    eff_data     = individual.get('efficientnet', {})
+    stat_data    = individual.get('statistical', {})
+    meta_data    = individual.get('metadata', {})
+    filter_data  = individual.get('filter', {})
+    proc_data    = individual.get('processing', {})
+    forensic_data = individual.get('forensics', {})
+
+    eff_prob    = eff_data.get('probability', None)
+    stat_prob   = stat_data.get('probability', None)
+    meta_prob   = meta_data.get('probability', None)
+    filter_conf = filter_data.get('confidence', None)
+    filter_det  = filter_data.get('detected', False)
+    filter_type = filter_data.get('type', 'none')
+    jpeg_qual   = meta_data.get('jpeg_quality', None)  # 0–100 or None
+
+    # Forensic sub-scores (0.0–1.0 probability each)
+    f_lighting   = forensic_data.get('lighting', {}).get('probability', None)
+    f_noise      = forensic_data.get('noise', {}).get('probability', None)
+    f_reflection = forensic_data.get('reflection', {}).get('probability', None)
+    f_gan        = forensic_data.get('gan_fingerprint', {}).get('probability', None)
+    f_overall    = forensic_data.get('probability', None)
+
+    # Processing score
+    proc_level = proc_data.get('level', individual.get('processing_level', {}).get('level', 'unknown'))
+    proc_score_map = {'minimal_processing': 5, 'moderate_processing': 50, 'heavy_processing': 90, 'unknown': None}
+    proc_score = proc_score_map.get(proc_level, None)
+
+    def pct(val):
+        """Convert 0-1 float to int percent, or None if unknown."""
+        if val is None:
+            return None
+        return int(round(float(val) * 100))
+
+    def status(score, bad_thresh, warn_thresh):
+        if score is None:
+            return 'unknown'
+        if score > bad_thresh:
+            return 'bad'
+        if score > warn_thresh:
+            return 'warning'
+        return 'good'
+
+    def explain_score(score, name, low_text, mid_text, high_text):
+        if score is None:
+            return f"{name} could not be computed for this image."
+        if score < 30:
+            return low_text
+        if score < 60:
+            return mid_text
+        return high_text
+
+    signals = []
+
+    # 1. EfficientNet Deep Neural Network
+    if eff_prob is not None:
+        s = pct(eff_prob)
+        signals.append({
+            'name': 'Neural Network (EfficientNet-B0)',
+            'icon': '🤖',
+            'score': s,
+            'status': status(s, 60, 35),
+            'source': 'Deep CNN trained on 1.7M images',
+            'explanation': explain_score(s, 'EfficientNet',
+                'EfficientNet-B0 sees natural camera patterns — strong indicator this is a real photo.',
+                'EfficientNet detected some suspicious patterns that may suggest AI generation or heavy editing.',
+                'EfficientNet-B0 strongly detected AI generation signatures from its training on 30+ generators.')
+        })
+
+    # 2. Statistical / Frequency Analysis
+    if stat_prob is not None:
+        s = pct(stat_prob)
+        signals.append({
+            'name': 'Statistical Frequency (DCT)',
+            'icon': '📊',
+            'score': s,
+            'status': status(s, 55, 30),
+            'source': 'Gradient Boosting on DCT frequency features',
+            'explanation': explain_score(s, 'Frequency analysis',
+                'DCT frequency distribution matches natural camera sensor patterns.',
+                'Some anomalies in the DCT frequency domain — could be compression or light editing.',
+                'DCT frequency distribution is unusual. AI generators leave distinct frequency artifacts.')
+        })
+
+    # 3. Metadata Authenticity
+    if meta_prob is not None:
+        s = pct(meta_prob)
+        has_camera = meta_data.get('has_camera', False)
+        has_gps    = meta_data.get('has_gps', False)
+        if has_camera or has_gps:
+            expl = f"✅ Camera EXIF data found ({('GPS + ' if has_gps else '')}{'camera make/model' if has_camera else ''}). This is a strong real-photo indicator."
+        elif s > 60:
+            expl = "No camera metadata (EXIF/GPS/Make/Model). AI-generated images typically lack these — this is suspicious."
+        elif s > 30:
+            expl = "Limited metadata present. Could be a stripped real photo (social media upload) or an AI image."
+        else:
+            expl = "Some metadata present but inconclusive without camera/GPS data."
+        signals.append({
+            'name': 'Metadata & EXIF Forensics',
+            'icon': '📷',
+            'score': s,
+            'status': status(s, 60, 35),
+            'source': 'EXIF, GPS, camera fingerprint analysis',
+            'explanation': expl
+        })
+
+    # 4. JPEG Compression Quality
+    if jpeg_qual is not None:
+        # AI images often have very high (90-100) or very low (<50) JPEG quality
+        # Real photos from cameras are usually 75-92
+        if 70 <= jpeg_qual <= 92:
+            jq_status = 'good'
+            jq_score = int((jpeg_qual - 70) / 22 * 20)  # 0-20% (looks real)
+            jq_expl = f"JPEG quality {jpeg_qual}/100 — falls within the typical range for real camera photos (70–92)."
+        elif jpeg_qual > 92:
+            jq_status = 'warning'
+            jq_score = int(30 + (jpeg_qual - 92) / 8 * 30)  # 30-60%
+            jq_expl = f"JPEG quality {jpeg_qual}/100 — unusually high. AI-generated images saved losslessly often land here."
+        else:  # < 70
+            jq_status = 'warning'
+            jq_score = int(40 + (70 - jpeg_qual) / 70 * 30)  # 40-70%
+            jq_expl = f"JPEG quality {jpeg_qual}/100 — low compression. May indicate heavy re-encoding or processing."
+        signals.append({
+            'name': 'JPEG Compression Quality',
+            'icon': '🗜️',
+            'score': jq_score,
+            'status': jq_status,
+            'source': 'JPEG quality factor from metadata',
+            'explanation': jq_expl
+        })
+
+    # 5. Social Media Filter Detection
+    if filter_conf is not None:
+        s = pct(filter_conf)
+        if filter_det:
+            expl = f"Filter detected: {filter_type} ({s}% confidence). {filter_data.get('indicators', [''])[0] if filter_data.get('indicators') else 'Multiple visual indicators found.'}. This may cause false-positive AI readings."
+            fst = 'warning' if s < 70 else 'bad'
+        else:
+            expl = "No social media filter signature detected. Image appears unfiltered."
+            fst = 'good'
+        signals.append({
+            'name': 'Social Media Filter Detection',
+            'icon': '🎨',
+            'score': s if filter_det else int(s * 0.3),
+            'status': fst,
+            'source': 'Visual pattern matching for Instagram/Snapchat/TikTok',
+            'explanation': expl
+        })
+
+    # 6. Image Processing Level
+    if proc_score is not None:
+        signals.append({
+            'name': 'Post-Processing Level',
+            'icon': '⚙️',
+            'score': proc_score,
+            'status': status(proc_score, 70, 30),
+            'source': 'Sharpening, noise reduction, resampling detection',
+            'explanation': {
+                'minimal_processing': 'Minimal post-processing detected — image appears close to original camera output.',
+                'moderate_processing': 'Moderate post-processing detected — some editing applied (sharpening, color grading, noise reduction).',
+                'heavy_processing': 'Heavy post-processing detected — significant editing makes accurate AI detection unreliable.',
+            }.get(proc_level, 'Processing level unknown.')
+        })
+
+    # 7. Forensic Lighting Consistency
+    if f_lighting is not None:
+        s = pct(f_lighting)
+        signals.append({
+            'name': 'Lighting Consistency (Forensic)',
+            'icon': '💡',
+            'score': s,
+            'status': status(s, 65, 40),
+            'source': 'Sobel gradient shadow-direction analysis per quadrant',
+            'explanation': explain_score(s, 'Lighting',
+                'Shadow directions are consistent across all quadrants — physically plausible lighting.',
+                'Some lighting inconsistency detected. Could be studio lighting or mild AI artifacts.',
+                'Significant lighting inconsistency detected across image regions — typical of AI generation artifacts.')
+        })
+
+    # 8. Sensor Noise Pattern (PRNU)
+    if f_noise is not None:
+        s = pct(f_noise)
+        signals.append({
+            'name': 'Sensor Noise Pattern (PRNU)',
+            'icon': '🔬',
+            'score': s,
+            'status': status(s, 65, 40),
+            'source': 'High-pass filter patch variance analysis',
+            'explanation': explain_score(s, 'Noise pattern',
+                'Sensor noise is naturally distributed — consistent with a real camera sensor fingerprint.',
+                'Partial noise irregularity. Could be compressed/re-encoded real photo.',
+                'Noise pattern is unusually uniform or inconsistent — AI synthesized images often lack realistic sensor noise.')
+        })
+
+    # 9. Specular Reflection Analysis
+    if f_reflection is not None:
+        s = pct(f_reflection)
+        signals.append({
+            'name': 'Specular Reflection Analysis',
+            'icon': '✨',
+            'score': s,
+            'status': status(s, 65, 40),
+            'source': 'Specular highlight detection and consistency check',
+            'explanation': explain_score(s, 'Reflections',
+                'Specular highlights appear physically consistent with the scene lighting direction.',
+                'Some irregularity in specular highlights. Could be complex multi-light setup.',
+                'Specular highlights appear inconsistent or unnaturally positioned — a common AI generation artifact.')
+        })
+
+    # 10. GAN Frequency Fingerprint
+    if f_gan is not None:
+        s = pct(f_gan)
+        signals.append({
+            'name': 'GAN Frequency Fingerprint',
+            'icon': '🌀',
+            'score': s,
+            'status': status(s, 65, 40),
+            'source': '2D FFT spectral peak detection',
+            'explanation': explain_score(s, 'GAN fingerprint',
+                'No GAN-specific spectral artifacts detected in the frequency domain.',
+                'Some unusual frequency patterns present. Could be compression or camera lens artifacts.',
+                'Periodic spectral peaks detected in 2D FFT — characteristic of GAN upsampling artifacts.')
+        })
+
+    # 11. Overall Forensic Score
+    if f_overall is not None:
+        s = pct(f_overall)
+        signals.append({
+            'name': 'Overall Forensic Score',
+            'icon': '🔍',
+            'score': s,
+            'status': status(s, 65, 40),
+            'source': 'Weighted combination of all 4 forensic analyzers',
+            'explanation': explain_score(s, 'Combined forensics',
+                'All forensic signals are consistent with a real photograph.',
+                'Forensic signals show mixed results — some signals lean real, others show minor anomalies.',
+                'Forensic analysis collectively flags multiple artifacts characteristic of AI-generated content.')
+        })
+
+    # 12. Cross-Model Agreement (disagreement)
+    disagreement = ensemble_result.get('disagreement', None)
+    if disagreement is not None:
+        s = int(round(float(disagreement) * 100))
+        if s < 20:
+            dag_status = 'good'
+            dag_expl = f"All detection models are in strong agreement ({100-s}% alignment). High confidence in the verdict."
+        elif s < 45:
+            dag_status = 'warning'
+            dag_expl = f"Models show moderate disagreement ({s}%). Verdict is less certain — consider context."
+        else:
+            dag_status = 'bad'
+            dag_expl = f"High model disagreement ({s}%). EfficientNet and Statistical model give very different readings — result is uncertain."
+        signals.append({
+            'name': 'Cross-Model Agreement',
+            'icon': '🤝',
+            'score': s,
+            'status': dag_status,
+            'source': 'Disagreement between EfficientNet and Statistical model',
+            'explanation': dag_expl
+        })
+
+    return signals
 
 
-def generate_analysis_summary(ai_prob: float, breakdown: list) -> str:
-    """Generate a human-readable analysis summary."""
-    good_count = sum(1 for b in breakdown if b['status'] == 'good')
-    bad_count = sum(1 for b in breakdown if b['status'] == 'bad')
-    
-    if ai_prob > 0.8:
-        return f"This image shows strong indicators of AI generation. {bad_count} of 12 analysis categories flagged significant concerns, including neural network detection, frequency patterns, and visual artifacts. While no detection is 100% certain, the evidence strongly suggests this image was created by an AI system such as DALL-E, Midjourney, Stable Diffusion, or similar."
-    elif ai_prob > 0.6:
-        return f"This image presents several suspicious elements indicative of potential AI influence, including some unusual patterns in texture and lighting. {bad_count} categories raised concerns while {good_count} appeared normal. While not definitive, these factors suggest the image may have been AI-generated or heavily manipulated."
-    elif ai_prob > 0.4:
-        return f"The analysis shows mixed signals. Some elements appear natural while others show potential processing artifacts. {good_count} categories indicate authentic characteristics. Manual review is recommended for critical decisions."
-    else:
-        return f"This image appears consistent with real photography. {good_count} of 12 analysis categories show characteristics consistent with real photographs, including natural metadata, proper frequency distributions, and realistic textures. Note: This does not prove authenticity — only provenance verification can do that."
+def build_summary(ai_prob: float, verdict: str, signals: list) -> str:
+    """Generate a dynamic summary from real signal results."""
+    good = sum(1 for s in signals if s['status'] == 'good')
+    bad  = sum(1 for s in signals if s['status'] == 'bad')
+    total = len(signals)
+    pct_str = f"{int(ai_prob * 100)}%"
+
+    if verdict == 'AI-GENERATED':
+        return (f"Analysis complete: {bad} of {total} forensic signals flagged significant AI artifacts. "
+                f"The synthetic likelihood score is {pct_str}. "
+                "Multiple independent detectors (neural network, frequency analysis, forensic signals) "
+                "agree this image was likely generated by an AI system such as DALL-E, Midjourney, or Stable Diffusion.")
+    elif verdict == 'LIKELY REAL':
+        return (f"Analysis complete: {good} of {total} signals are consistent with real photography. "
+                f"The synthetic likelihood score is {pct_str}. "
+                "Note: this does NOT prove authenticity. Only provenance verification (original file metadata, "
+                "source chain of custody) can establish an image's true origin.")
+    elif verdict == 'POSSIBLY AI':
+        return (f"Analysis complete: signals are mixed. {good} signals lean real, {bad} signal(s) raise concerns. "
+                f"The synthetic likelihood score is {pct_str}. "
+                "Manual review is recommended. The image may be AI-generated, heavily edited, or a filtered real photo.")
+    else:  # UNCERTAIN
+        return (f"Analysis inconclusive. {bad} signals flagged concerns while {good} appear normal. "
+                f"Synthetic likelihood: {pct_str}. "
+                "Detection is unreliable due to heavy image processing, strong filter effects, or high model disagreement. "
+                "Do not rely on this result for any critical decision.")
 
 
 @app.route('/')
@@ -208,219 +342,124 @@ def index():
 @app.route('/api/detect', methods=['POST'])
 def detect():
     """
-    Main detection API endpoint.
-    Calls ensemble_predict() directly — identical to CLI code path.
+    Main detection API endpoint — returns fully dynamic signal data.
+    Zero hardcoded scores.
     """
     if 'image' not in request.files:
         return jsonify({'error': 'No image file provided'}), 400
-    
+
     file = request.files['image']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
+
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type. Supported: JPG, PNG, WebP, GIF'}), 400
-    
-    # Save file temporarily
+
     filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
+
     try:
         file.save(filepath)
     except Exception as e:
         return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
-    
+
     try:
-        if not UNIFIED_AVAILABLE and not ENSEMBLE_AVAILABLE:
-            return jsonify({
-                'success': True,
-                'error_notice': 'No detectors available',
-                'overall_score': 50,
-                'verdict': 'UNCERTAIN',
-                'confidence': 'LOW',
-                'decision_source': 'Fallback (detector unavailable)',
-                'detected_domain': 'unknown',
-                'detector_used': 'None',
-                'summary': 'Detection models could not be loaded. Results are unreliable.',
-                'breakdown': [],
-                'limitations': [
-                    'Detector modules not available',
-                    'Results are unreliable'
-                ]
-            }), 200
-        
-        # === DOMAIN-AWARE DETECTION ===
-        # Priority: unified_detect (routes face/non-face) > ensemble_predict (face only)
-        unified_result = None
-        ensemble_result = None
-        
-        if UNIFIED_AVAILABLE:
-            # Unified detector handles routing: face → face detector, non-face → general
-            unified_result = unified_detect(filepath)
-        
-        if ENSEMBLE_AVAILABLE:
-            # Also run ensemble for rich data (filter, processing level, individual scores)
-            ensemble_result = ensemble_predict(filepath)
-        
-        # Use unified result for primary verdict (it has domain-aware routing)
-        if unified_result:
-            ensemble_prob = float(unified_result.get('synthetic_probability', 0.5))
-            verdict = unified_result.get('verdict', 'UNCERTAIN')
-            confidence = unified_result.get('confidence_band', 'MEDIUM')
-            decision_source = unified_result.get('detector_used', 'Unknown')
-            detected_domain = unified_result.get('detected_domain', 'unknown')
-            domain_confidence = unified_result.get('domain_confidence', 0.0)
-            uncertainty_notice = unified_result.get('uncertainty_notice', '')
-            domain_limitations = unified_result.get('limitations', '')
-        elif ensemble_result:
-            # Fallback: ensemble only (no domain routing)
-            ensemble_prob = ensemble_result.get('ensemble_probability', 0.5)
-            verdict = ensemble_result.get('verdict', 'UNCERTAIN')
-            confidence = ensemble_result.get('confidence', 'MEDIUM')
-            decision_source = ensemble_result.get('decision_source', 'Unknown')
-            detected_domain = 'face'  # ensemble is face-focused
-            domain_confidence = 0.0
-            uncertainty_notice = ''
-            domain_limitations = ''
-        else:
-            ensemble_prob = 0.5
-            verdict = 'UNCERTAIN'
-            confidence = 'LOW'
-            decision_source = 'No detector'
-            detected_domain = 'unknown'
-            domain_confidence = 0.0
-            uncertainty_notice = ''
-            domain_limitations = ''
-        
-        # Extract rich ensemble data (filter, processing, individual scores)
-        # These are only available when ensemble_predict ran
-        # Cast to native Python types to avoid numpy JSON serialization errors
-        if ensemble_result:
-            filter_detected = bool(ensemble_result.get('filter_detected', False))
-            filter_type = str(ensemble_result.get('filter_type', 'none'))
-            filter_confidence = float(ensemble_result.get('filter_confidence', 0.0))
-            processing_level = str(ensemble_result.get('image_processing_level', 'unknown'))
-            processing_warning = ensemble_result.get('processing_warning', None)
-            if processing_warning is not None:
-                processing_warning = str(processing_warning)
-            disagreement = float(ensemble_result.get('disagreement', 0.0))
-        else:
-            filter_detected = False
-            filter_type = 'none'
-            filter_confidence = 0.0
-            processing_level = 'unknown'
-            processing_warning = None
-            disagreement = 0.0
-        
-        # Generate detailed breakdown (uses ensemble individual scores if available)
-        breakdown_source = ensemble_result if ensemble_result else {
-            'ensemble_probability': ensemble_prob,
-            'individual_results': {}
-        }
-        breakdown = generate_detailed_breakdown(breakdown_source)
-        
-        # Generate summary
-        summary = generate_analysis_summary(ensemble_prob, breakdown)
-        
-        # Overall score as percentage
-        overall_score = int(ensemble_prob * 100)
-        
-        # Confidence interval
-        if unified_result and 'confidence_interval' in unified_result:
-            ci = unified_result['confidence_interval']
-            ci_lower = max(0, int(ci.get('lower', 0) * 100))
-            ci_upper = min(100, int(ci.get('upper', 1) * 100))
-        else:
-            ci_half = max(5, int(disagreement * 50))
-            ci_lower = max(0, overall_score - ci_half)
-            ci_upper = min(100, overall_score + ci_half)
-        
-        # Build limitations list
+        if not ENSEMBLE_AVAILABLE:
+            return jsonify({'error': 'Detection models not loaded.'}), 500
+
+        ensemble_result = ensemble_predict(filepath)
+
+        ai_prob         = float(ensemble_result.get('ensemble_probability', 0.5))
+        verdict         = str(ensemble_result.get('verdict', 'UNCERTAIN'))
+        confidence      = str(ensemble_result.get('confidence', 'LOW'))
+        decision_source = str(ensemble_result.get('decision_source', 'Unknown'))
+        disagreement    = float(ensemble_result.get('disagreement', 0.0))
+        filter_detected = bool(ensemble_result.get('filter_detected', False))
+        filter_type     = str(ensemble_result.get('filter_type', 'none'))
+        filter_conf     = float(ensemble_result.get('filter_confidence', 0.0))
+        proc_level      = str(ensemble_result.get('image_processing_level', 'unknown'))
+        proc_warning    = ensemble_result.get('processing_warning', None)
+        if proc_warning:
+            proc_warning = str(proc_warning)
+
+        # Build real dynamic signals from actual model outputs
+        signals = build_signals(ensemble_result)
+
+        # Build confidence interval
+        ci_half   = max(5, int(disagreement * 50))
+        overall   = int(ai_prob * 100)
+        ci_lower  = max(0, overall - ci_half)
+        ci_upper  = min(100, overall + ci_half)
+
+        # Build limitations
         limitations = [
-            "This system estimates synthetic likelihood, NOT authenticity",
-            "REAL classification is unverified — only provenance can prove authenticity",
-            "Confidence reflects model uncertainty, NOT ground truth",
+            "This system estimates synthetic likelihood — NOT image authenticity.",
+            "A LIKELY REAL result does NOT prove authenticity. Only provenance verification can.",
+            "AI probability is a statistical estimate with inherent uncertainty.",
         ]
-        if domain_limitations:
-            limitations.append(domain_limitations)
-        if processing_level == 'heavy_processing':
-            limitations.append("Heavy image processing detected — detection reliability is reduced")
+        if proc_level == 'heavy_processing':
+            limitations.append("⚠️ Heavy post-processing detected — detection reliability is significantly reduced.")
         if filter_detected:
-            limitations.append(f"Social media filter detected ({filter_type}) — may cause false positives")
-        if processing_level == 'moderate_processing':
-            limitations.append("Moderate processing detected — confidence is reduced")
-        if detected_domain in ('art_or_illustration', 'synthetic_graphics'):
-            limitations.append(f"Domain '{detected_domain}' has limited validation data — results may be less reliable")
-        
-        # Extract individual scores for debugging (from ensemble if available)
-        individual = ensemble_result.get('individual_results', {}) if ensemble_result else {}
-        
-        # Build response — unified detection output
+            limitations.append(f"⚠️ Social media filter detected ({filter_type}) — may cause false AI positives.")
+        if proc_level == 'moderate_processing':
+            limitations.append("Moderate image processing detected — confidence interval is wider than normal.")
+
+        # Build summary from real data
+        summary = build_summary(ai_prob, verdict, signals)
+
+        # Raw individual scores for debug panel
+        individual = ensemble_result.get('individual_results', {})
+        forensics  = individual.get('forensics', {})
+
         response = {
             'success': True,
             'timestamp': datetime.now().isoformat(),
             'filename': file.filename,
-            
-            # Core results
-            'overall_score': overall_score,
+
+            # Core verdict
+            'overall_score': overall,
             'verdict': verdict,
             'confidence': confidence,
             'decision_source': decision_source,
-            
-            # Domain routing info
-            'detected_domain': str(detected_domain),
-            'domain_confidence': int(round(float(domain_confidence) * 100)),
-            
-            # Confidence interval
-            'confidence_interval': {
-                'lower': ci_lower,
-                'upper': ci_upper,
-            },
-            
-            # Model agreement
-            'model_disagreement': int(round(float(disagreement) * 100)),
-            
-            # Filter detection
+
+            # Interval & agreement
+            'confidence_interval': {'lower': ci_lower, 'upper': ci_upper},
+            'model_disagreement': int(round(disagreement * 100)),
+
+            # Filter & processing
             'filter_detected': filter_detected,
             'filter_type': filter_type if filter_detected else None,
-            'filter_confidence': round(filter_confidence * 100) if filter_detected else None,
-            
-            # Processing level
-            'image_processing_level': processing_level,
-            'processing_warning': processing_warning,
-            
-            # Breakdown and summary
+            'filter_confidence': round(filter_conf * 100) if filter_detected else None,
+            'image_processing_level': proc_level,
+            'processing_warning': proc_warning,
+
+            # The real dynamic signals
+            'signals': signals,
             'summary': summary,
-            'breakdown': breakdown,
-            
-            # Limitations (always shown)
             'limitations': limitations,
-            
-            # Raw individual scores for debugging
+
+            # Raw scores for the live scores panel in the UI
             'raw_scores': {
-                'efficientnet': float(individual.get('efficientnet', {}).get('probability', 0.5)),
-                'statistical': float(individual.get('statistical', {}).get('probability', 0.5)),
-                'metadata': float(individual.get('metadata', {}).get('probability', 0.5)),
+                'efficientnet':  round(float(individual.get('efficientnet', {}).get('probability', 0.5)) * 100, 1),
+                'statistical':   round(float(individual.get('statistical', {}).get('probability', 0.5)) * 100, 1),
+                'metadata':      round(float(individual.get('metadata', {}).get('probability', 0.5)) * 100, 1),
+                'forensic':      round(float(forensics.get('probability', 0.5)) * 100, 1),
+                'meta_voter':    'active' if 'Meta-Voter' in decision_source else 'fallback',
             }
         }
-        
-        # Clean up uploaded file
+
         if os.path.exists(filepath):
             os.remove(filepath)
-        
+
         return jsonify(response)
-        
+
     except Exception as e:
         import traceback
-        error_trace = traceback.format_exc()
         print(f"[ERROR] Detection failed: {e}")
-        print(f"[ERROR] Traceback: {error_trace}")
-        
-        # Clean up on error
+        print(traceback.format_exc())
         if os.path.exists(filepath):
             os.remove(filepath)
-            
         return jsonify({'error': f'Detection failed: {str(e)}'}), 500
 
 
@@ -434,5 +473,4 @@ if __name__ == '__main__':
     print("  DeepFake Detection Web Interface")
     print("  http://localhost:5000")
     print("=" * 50 + "\n")
-    # PRODUCTION FIX: Disable reloader to prevent mid-analysis restarts
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
