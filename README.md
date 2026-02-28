@@ -185,8 +185,4 @@ DeepFake/
 - **Meta-Voter**: GradientBoosting (200 trees, depth 4) trained on 10 signal features from 110K images
 - **Inference**: GPU accelerated with cached model loading
 
----
 
-## 📝 License
-
-MIT License — see [LICENSE](LICENSE) for details.
