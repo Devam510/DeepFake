@@ -5,7 +5,10 @@ Ensemble AI Detector - Precise Detection
 Combines multiple detection methods to reduce false positives:
 1. EfficientNet-B0 (trained research model, 1.7M images)
 2. Statistical frequency analysis
-3. Confidence weighting
+3. Metadata forensics + JPEG compression analysis
+4. Social media filter detection
+5. Forensic signals (lighting, noise, reflections, GAN fingerprints)
+6. Cross-model meta-voter (trained voting model)
 
 Usage:
     python ensemble_detector.py <image_path>
@@ -209,11 +212,24 @@ def get_metadata_signals(image_path: str) -> dict:
 
         # Real photos usually have rich EXIF data
         # AI images usually have minimal/no EXIF
+        # BUT: Messaging apps (WhatsApp, Telegram, Discord) strip ALL EXIF
+        # So "no EXIF" alone is NOT strong evidence of AI
         real_indicators = sum([has_exif, has_camera_make, has_gps])
 
-        # More real indicators = lower AI probability
-        ai_prob = 0.7 - (real_indicators * 0.2)
+        # Base probability: 0.55 for no indicators (was 0.7 — too harsh on messaging app photos)
+        # Each real indicator reduces by 0.2
+        ai_prob = 0.55 - (real_indicators * 0.2)
         ai_prob = max(0.1, min(0.9, ai_prob))
+
+        # FIX C: Check JPEG compression quality
+        # WhatsApp/Telegram double-compress at ~70-85% quality
+        # AI images tend to be uncompressed PNG or high-quality JPEG (90%+)
+        jpeg_quality = _estimate_jpeg_quality(image_path)
+        is_double_compressed = jpeg_quality is not None and 60 <= jpeg_quality <= 85
+
+        if is_double_compressed:
+            # Strong signal: double-compressed JPEG = likely shared via messaging app
+            ai_prob = max(ai_prob - 0.15, 0.1)  # Reduce AI probability
 
         return {
             "probability": ai_prob,
@@ -222,9 +238,56 @@ def get_metadata_signals(image_path: str) -> dict:
             "has_exif": has_exif,
             "has_camera": has_camera_make,
             "has_gps": has_gps,
+            "jpeg_quality": jpeg_quality,
+            "is_double_compressed": is_double_compressed,
         }
     except Exception as e:
         return {"error": str(e), "probability": 0.5, "weight": 0.1}
+
+
+def _estimate_jpeg_quality(image_path: str) -> int:
+    """Estimate JPEG quality level from quantization tables.
+    
+    Returns estimated quality (1-100) or None if not JPEG.
+    Lower quality (60-85) suggests messaging app compression.
+    """
+    try:
+        img = Image.open(image_path)
+        if img.format != "JPEG":
+            return None
+        
+        # Get quantization tables
+        qtables = img.quantization
+        if not qtables:
+            return None
+        
+        # Average the luminance quantization table values
+        # Higher values = lower quality
+        luma_table = list(qtables[0].values()) if isinstance(qtables[0], dict) else list(qtables[0])
+        avg_quant = sum(luma_table) / len(luma_table)
+        
+        # Approximate quality from average quantization
+        # These are rough estimates based on standard JPEG tables
+        if avg_quant <= 2:
+            return 98
+        elif avg_quant <= 4:
+            return 95
+        elif avg_quant <= 6:
+            return 90
+        elif avg_quant <= 10:
+            return 85
+        elif avg_quant <= 15:
+            return 80
+        elif avg_quant <= 25:
+            return 70
+        elif avg_quant <= 40:
+            return 60
+        elif avg_quant <= 60:
+            return 50
+        else:
+            return 30
+    except Exception:
+        return None
 
 
 def ensemble_predict(image_path: str) -> dict:
@@ -237,17 +300,17 @@ def ensemble_predict(image_path: str) -> dict:
     results = {}
 
     # Get predictions from all models
-    print("\n  [1/5] Running EfficientNet-B0...")
+    print("\n  [1/7] Running EfficientNet-B0...")
     results["efficientnet"] = get_efficientnet_prediction(image_path)
 
-    print("  [2/5] Running Statistical Analysis...")
+    print("  [2/7] Running Statistical Analysis...")
     results["statistical"] = get_statistical_prediction(image_path)
 
-    print("  [3/5] Checking Metadata...")
+    print("  [3/7] Checking Metadata...")
     results["metadata"] = get_metadata_signals(image_path)
 
     # Check for social media filters
-    print("  [4/5] Checking for Social Media Filters...")
+    print("  [4/7] Checking for Social Media Filters...")
     filter_result = None
     if FILTER_DETECTOR_AVAILABLE:
         try:
@@ -266,8 +329,8 @@ def ensemble_predict(image_path: str) -> dict:
             "detected": False,
         }
 
-    # NEW: Estimate image processing level (filters, enhancement, editing)
-    print("  [5/5] Analyzing Processing Level...")
+    # Estimate image processing level (filters, enhancement, editing)
+    print("  [5/7] Analyzing Processing Level...")
     processing_result = None
     processing_level = "unknown"
     processing_warning = None
@@ -289,6 +352,20 @@ def ensemble_predict(image_path: str) -> dict:
             "error": "Processing level detector not available",
             "level": "unknown",
         }
+
+    # NEW: Forensic signal analysis (lighting, noise, reflections, GAN fingerprints)
+    print("  [6/7] Running Forensic Analysis...")
+    try:
+        from forensic_signals import analyze_forensics
+        forensic_result = analyze_forensics(image_path)
+        results["forensics"] = forensic_result
+    except ImportError:
+        results["forensics"] = {"probability": 0.5, "error": "forensic_signals not available"}
+    except Exception as e:
+        results["forensics"] = {"probability": 0.5, "error": str(e)}
+
+    # NEW: Cross-model meta-voter (trained voting model)
+    print("  [7/7] Cross-Model Voting...")
 
     # Print individual results
     print("\n" + "-" * 60)
@@ -322,9 +399,11 @@ def ensemble_predict(image_path: str) -> dict:
     statistical = results.get("statistical", {})
     metadata = results.get("metadata", {})
     filter_info = results.get("filter", {})
+    forensics = results.get("forensics", {})
 
     eff_prob = efficientnet.get("probability", 0.5)
     stat_prob = statistical.get("probability", 0.5)
+    forensic_prob = forensics.get("probability", 0.5)
 
     # Check metadata for strong real indicators and AI probability
     has_camera = metadata.get("has_camera", False)
@@ -365,83 +444,105 @@ def ensemble_predict(image_path: str) -> dict:
         (num_filter_indicators >= 3 or (num_filter_indicators >= 2 and has_beautification))
     )
 
-    # Decision logic (PRODUCTION priority order):
-    # 1. Camera/GPS metadata = DEFINITIVE real photo
-    # 2. Known social media app filter with HIGH confidence = DEFINITIVE filtered real photo
-    #    (Snapchat/Instagram filename or metadata = trust it, NOT AI)
-    # 3. EfficientNet 99%+ = Strong AI indicator (only if no real indicators)
-    # 4. Known app filter with MEDIUM confidence = Possible filtered photo
-    # 5. Model agreement logic
-    # 6. Disagreement handling
+    # =========================================================
+    # TRY META-VOTER FIRST (trained cross-model voting)
+    # If meta-voter is trained, use it instead of hand-tuned logic
+    # =========================================================
+    meta_voter_used = False
+    try:
+        from meta_voter import MetaVoter
+        voter = MetaVoter()
+        if voter.is_trained:
+            voter_features = {
+                "eff_prob": eff_prob,
+                "stat_prob": stat_prob,
+                "meta_prob": meta_prob,
+                "filter_confidence": filter_confidence,
+                "forensic_lighting": forensics.get("lighting", {}).get("probability", 0.5),
+                "forensic_noise": forensics.get("noise", {}).get("probability", 0.5),
+                "forensic_reflection": forensics.get("reflection", {}).get("probability", 0.5),
+                "forensic_gan_fp": forensics.get("gan_fingerprint", {}).get("probability", 0.5),
+                "jpeg_quality": (metadata.get("jpeg_quality") or 0) / 100.0,
+                "disagreement": disagreement,
+            }
+            ensemble_prob = voter.predict(voter_features)
+            decision_source = "Cross-Model Meta-Voter (trained)"
+            meta_voter_used = True
+    except (ImportError, Exception):
+        pass
 
-    if strong_real_metadata:
-        # PRIORITY 1: Camera/GPS metadata = definitive real photo
-        ensemble_prob = min(eff_prob * 0.3, 0.3)  # Cap at 30%
-        decision_source = "Metadata (camera/GPS detected)"
-    elif is_known_app_filter and filter_confidence > 0.7:
-        # PRIORITY 2: Known social media app filter with HIGH confidence
-        # Snapchat/Instagram/TikTok confirmed = this is a filtered REAL photo
-        # DO NOT trust AI detection on these - filters cause false positives
-        ensemble_prob = min(eff_prob * 0.2, 0.25)  # Cap at 25%
-        decision_source = (
-            f"Known app: {filter_type} ({filter_confidence:.0%} confidence)"
-        )
-    elif eff_prob > 0.99 and not is_known_app_filter and not is_strong_generic_filter:
-        # PRIORITY 3: EfficientNet EXTREMELY confident it's AI
-        # Only trust this if NO filter detected (known or generic with strong evidence)
-        ensemble_prob = eff_prob
-        decision_source = "EfficientNet (99%+ confidence - modern AI expert)"
-    elif is_known_app_filter and filter_confidence > 0.4:
-        # PRIORITY 4: Known social media app filter with MEDIUM confidence
-        ensemble_prob = min(eff_prob * 0.4, 0.45)  # Cap at 45%
-        decision_source = f"Possible {filter_type} filter"
-    elif is_strong_generic_filter:
-        # PRIORITY 4b: Generic filter with strong visual evidence
-        # This catches Snapchat/Instagram photos saved without app-identifying metadata
-        # (e.g. saved as "ph.jpg" with no EXIF app signature)
-        if has_beautification:
-            # Beautification = face filter = very likely social media
-            ensemble_prob = min(eff_prob * 0.25, 0.30)  # Cap at 30%
-            decision_source = f"Beautification filter detected ({num_filter_indicators} indicators)"
+    # =========================================================
+    # FALLBACK: Hand-tuned voting (if meta-voter not available)
+    # =========================================================
+    if not meta_voter_used:
+        # Decision logic (PRODUCTION priority order):
+        # 1. Camera/GPS metadata = DEFINITIVE real photo
+        # 2. Known social media app filter with HIGH confidence = DEFINITIVE filtered real photo
+        #    (Snapchat/Instagram filename or metadata = trust it, NOT AI)
+        # 3. EfficientNet 99%+ = Strong AI indicator (only if no real indicators)
+        # 4. Known app filter with MEDIUM confidence = Possible filtered photo
+        # 5. Model agreement logic
+        # 6. Disagreement handling
+
+        if strong_real_metadata:
+            # PRIORITY 1: Camera/GPS metadata = definitive real photo
+            ensemble_prob = min(eff_prob * 0.3, 0.3)  # Cap at 30%
+            decision_source = "Metadata (camera/GPS detected)"
+        elif is_known_app_filter and filter_confidence > 0.7:
+            # PRIORITY 2: Known social media app filter with HIGH confidence
+            # Snapchat/Instagram/TikTok confirmed = this is a filtered REAL photo
+            # DO NOT trust AI detection on these - filters cause false positives
+            ensemble_prob = min(eff_prob * 0.2, 0.25)  # Cap at 25%
+            decision_source = (
+                f"Known app: {filter_type} ({filter_confidence:.0%} confidence)"
+            )
+        elif eff_prob > 0.99 and not is_known_app_filter and not is_strong_generic_filter:
+            # PRIORITY 3: EfficientNet EXTREMELY confident it's AI
+            # Only trust this if NO filter detected (known or generic with strong evidence)
+            ensemble_prob = eff_prob
+            decision_source = "EfficientNet (99%+ confidence - modern AI expert)"
+        elif is_known_app_filter and filter_confidence > 0.4:
+            # PRIORITY 4: Known social media app filter with MEDIUM confidence
+            ensemble_prob = min(eff_prob * 0.4, 0.45)  # Cap at 45%
+            decision_source = f"Possible {filter_type} filter"
+        elif is_strong_generic_filter:
+            # PRIORITY 4b: Generic filter with strong visual evidence
+            if has_beautification:
+                ensemble_prob = min(eff_prob * 0.25, 0.30)  # Cap at 30%
+                decision_source = f"Beautification filter detected ({num_filter_indicators} indicators)"
+            else:
+                ensemble_prob = min(eff_prob * 0.35, 0.40)  # Cap at 40%
+                decision_source = f"Strong filter evidence ({num_filter_indicators} indicators, {filter_confidence:.0%})"
+        elif eff_prob > 0.95 and stat_prob > 0.5:
+            # BOTH models agree it's likely AI (and no filter detected)
+            ensemble_prob = eff_prob
+            decision_source = "High agreement (both say AI)"
+        elif eff_prob < 0.15 and stat_prob < 0.5:
+            # BOTH agree it's likely real
+            ensemble_prob = eff_prob
+            decision_source = "High agreement (both say real)"
+        elif disagreement > 0.6 and filter_detected:
+            # HIGH disagreement + filter patterns
+            meta_also_says_ai = meta_prob > 0.6 and not strong_real_metadata
+            eff_clearly_ai = eff_prob > 0.6
+            if eff_clearly_ai and meta_also_says_ai:
+                ensemble_prob = (eff_prob * 0.7 + meta_prob * 0.3)
+                decision_source = f"EfficientNet + Metadata agree AI (filter noise ignored)"
+            elif num_filter_indicators >= 3 or filter_confidence > 0.5:
+                ensemble_prob = min(eff_prob * 0.3, 0.35)  # Cap at 35%
+                decision_source = f"Filter patterns detected ({num_filter_indicators} indicators, {filter_confidence:.0%})"
+            else:
+                ensemble_prob = min(eff_prob * 0.5, 0.50)  # Cap at 50%
+                decision_source = f"Possible filter effects ({filter_confidence:.0%})"
+        elif disagreement > 0.6:
+            # HIGH disagreement without strong filter evidence
+            ensemble_prob = min(eff_prob, stat_prob) * 0.6 + max(eff_prob, stat_prob) * 0.4
+            decision_source = f"Conservative (disagreement {disagreement:.0%})"
         else:
-            # Multiple visual filter indicators but no beautification
-            ensemble_prob = min(eff_prob * 0.35, 0.40)  # Cap at 40%
-            decision_source = f"Strong filter evidence ({num_filter_indicators} indicators, {filter_confidence:.0%})"
-    elif eff_prob > 0.95 and stat_prob > 0.5:
-        # BOTH models agree it's likely AI (and no filter detected)
-        ensemble_prob = eff_prob
-        decision_source = "High agreement (both say AI)"
-    elif eff_prob < 0.15 and stat_prob < 0.5:
-        # BOTH agree it's likely real
-        ensemble_prob = eff_prob
-        decision_source = "High agreement (both say real)"
-    elif disagreement > 0.6 and filter_detected:
-        # HIGH disagreement + filter patterns
-        # KEY INSIGHT: AI images (ChatGPT, Midjourney) often have vignette/warm tones
-        # naturally — we should not suppress EfficientNet if multiple signals agree it's AI
-        meta_also_says_ai = meta_prob > 0.6 and not strong_real_metadata
-        eff_clearly_ai = eff_prob > 0.6
-        if eff_clearly_ai and meta_also_says_ai:
-            # EfficientNet + Metadata both say AI, no camera EXIF
-            # Filter is noise (AI images can have vignette/warm characteristics)
-            ensemble_prob = (eff_prob * 0.7 + meta_prob * 0.3)  # Trust both signals
-            decision_source = f"EfficientNet + Metadata agree AI (filter noise ignored)"
-        elif num_filter_indicators >= 3 or filter_confidence > 0.5:
-            # Strong filter evidence AND EfficientNet is ambiguous — aggressive reduction
-            ensemble_prob = min(eff_prob * 0.3, 0.35)  # Cap at 35%
-            decision_source = f"Filter patterns detected ({num_filter_indicators} indicators, {filter_confidence:.0%})"
-        else:
-            # Moderate filter evidence
-            ensemble_prob = min(eff_prob * 0.5, 0.50)  # Cap at 50%
-            decision_source = f"Possible filter effects ({filter_confidence:.0%})"
-    elif disagreement > 0.6:
-        # HIGH disagreement without strong filter evidence
-        ensemble_prob = min(eff_prob, stat_prob) * 0.6 + max(eff_prob, stat_prob) * 0.4
-        decision_source = f"Conservative (disagreement {disagreement:.0%})"
-    else:
-        # Moderate agreement - weighted average
-        ensemble_prob = eff_prob * 0.6 + stat_prob * 0.4
-        decision_source = "Weighted ensemble"
+            # Moderate agreement - weighted average with forensic signal
+            base_prob = eff_prob * 0.55 + stat_prob * 0.30 + forensic_prob * 0.15
+            ensemble_prob = base_prob
+            decision_source = "Weighted ensemble (with forensics)"
 
     # Final verdict
     print("\n" + "-" * 60)
@@ -535,10 +636,12 @@ def ensemble_predict(image_path: str) -> dict:
     elif ensemble_prob > 0.6:
         verdict = "AI-GENERATED"
         confidence = "MEDIUM" if processing_level == "moderate_processing" else "MEDIUM"
-    elif ensemble_prob > 0.4:
+    elif ensemble_prob > 0.5:
+        # Above 50% = more likely AI than real, but not confident enough for AI-GENERATED
         verdict = "POSSIBLY AI"
         confidence = "MEDIUM" if processing_level != "moderate_processing" else "LOW"
     else:
+        # Below 50% = more likely real than AI
         verdict = "LIKELY REAL"
         confidence = "MEDIUM" if processing_level != "moderate_processing" else "LOW"
 
