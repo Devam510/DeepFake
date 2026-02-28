@@ -190,8 +190,8 @@ class ProductionFrozenDetector:
         self._scaler = data["scaler"]
         self._model_name = data["name"]
 
-        print(f"✅ Loaded FROZEN model: {self._model_name} v{self.MODEL_VERSION}")
-        print(f"⚠️ PRODUCTION MODE: Training disabled")
+        print(f"[OK] Loaded FROZEN model: {self._model_name} v{self.MODEL_VERSION}")
+        print(f"[!] PRODUCTION MODE: Training disabled")
 
     def predict(self, features) -> FrozenPrediction:
         """
