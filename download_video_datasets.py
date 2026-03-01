@@ -177,11 +177,13 @@ def download_ff():
 # ══════════════════════════════════════════════════════════════════════════════
 def download_eval2024():
     print("=" * 60)
-    print("  [3/4] Deepfake-Eval-2024 | In-the-Wild | multimodal")
-    print("        Sora, RunwayML, HeyGen, Pika Labs — social media content")
+    print("  [3/4] TalkingHeadBench | Talking Head Deepfakes | Public")
+    print("        Multi-model benchmark — talking head / lip-sync fakes")
     print("=" * 60)
-    # nuriachandra mirror — confirmed public, no login required
-    hf_download("nuriachandra/Deepfake-Eval-2024", BASE_DIR / "deepfake_eval_2024")
+    # nuriachandra/Deepfake-Eval-2024 is gated (requires login)
+    # luchaoqi/TalkingHeadBench is fully public — covers talking head deepfakes
+    # which is exactly what we need for lip-sync and mouth-lag detection
+    hf_download("luchaoqi/TalkingHeadBench", BASE_DIR / "deepfake_eval_2024")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATASET 4: Celeb-DF v2 (Kaggle mirror — no form)
