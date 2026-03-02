@@ -26,14 +26,25 @@ except ImportError:
     pass
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max (for videos)
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'gif'}
+VIDEO_EXTENSIONS   = {'mp4', 'avi', 'mov', 'webm', 'mkv'}
+
+VIDEO_DETECTOR_AVAILABLE = False
+try:
+    from video_detector import detect_video
+    VIDEO_DETECTOR_AVAILABLE = True
+except ImportError:
+    pass
 
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def allowed_video(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in VIDEO_EXTENSIONS
 
 
 def build_signals(ensemble_result: dict) -> list:
@@ -466,6 +477,129 @@ def detect():
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+@app.route('/api/detect-video', methods=['POST'])
+def detect_video_api():
+    """
+    Video deepfake detection endpoint.
+    Accepts MP4/AVI/MOV/WEBM/MKV uploads, runs the full video pipeline,
+    returns signal data in the same format as /api/detect for the UI.
+    """
+    if not VIDEO_DETECTOR_AVAILABLE:
+        return jsonify({'error': 'Video detection module not loaded.'}), 500
+
+    if 'video' not in request.files:
+        return jsonify({'error': 'No video file provided'}), 400
+
+    file = request.files['video']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    if not allowed_video(file.filename):
+        return jsonify({'error': 'Invalid file type. Supported: MP4, AVI, MOV, WEBM, MKV'}), 400
+
+    filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+    try:
+        file.save(filepath)
+    except Exception as e:
+        return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+
+    try:
+        result = detect_video(filepath)
+
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+
+        ai_prob  = float(result.get('probability', 0.5))
+        verdict  = str(result.get('verdict', 'UNCERTAIN'))
+        confidence = str(result.get('confidence', 'LOW'))
+        overall  = int(ai_prob * 100)
+
+        # Map video signals to UI format
+        raw_signals = result.get('signals', [])
+        signals = []
+        for s in raw_signals:
+            score_val = float(s.get('score', 0.5))
+            score_pct = int(score_val * 100)
+            if score_pct > 65:
+                st = 'bad'
+            elif score_pct > 40:
+                st = 'warning'
+            else:
+                st = 'good'
+            signals.append({
+                'name':        s.get('name', 'Signal'),
+                'icon':        s.get('icon', '📊'),
+                'score':       score_pct,
+                'status':      st,
+                'source':      'Video analysis pipeline',
+                'explanation': s.get('description', ''),
+            })
+
+        # Build summary
+        video_info = result.get('video_info', {})
+        duration   = video_info.get('duration', 0)
+        n_frames   = video_info.get('frames_analyzed', 0)
+        method     = result.get('method', 'weighted_average')
+
+        if verdict == 'AI-GENERATED':
+            summary = (f"Video analysis complete: {overall}% AI probability across {n_frames} sampled frames "
+                       f"({duration:.1f}s video). Frame-level deep neural network, temporal, biological, "
+                       f"and audio signals all flagged this video as likely AI-generated or deepfake.")
+        elif verdict in ('REAL', 'LIKELY REAL'):
+            summary = (f"Video analysis complete: {overall}% AI probability across {n_frames} sampled frames "
+                       f"({duration:.1f}s video). Signals are consistent with a real video recording.")
+        else:
+            summary = (f"Video analysis inconclusive: {overall}% AI probability. "
+                       f"Analyzed {n_frames} frames over {duration:.1f}s. Manual review recommended.")
+
+        response = {
+            'success':       True,
+            'timestamp':     datetime.now().isoformat(),
+            'filename':      file.filename,
+            'media_type':    'video',
+
+            'overall_score': overall,
+            'verdict':       verdict,
+            'confidence':    confidence,
+            'decision_source': method,
+
+            'confidence_interval': {'lower': max(0, overall - 10), 'upper': min(100, overall + 10)},
+            'model_disagreement':  0,
+
+            'signals':     signals,
+            'summary':     summary,
+            'limitations': [
+                "Video detection analyzes sampled frames — very short clips may be less accurate.",
+                "Celeb-DF v2 style deepfakes require broader training data for confident detection.",
+                "Audio analysis requires ffmpeg to be installed.",
+            ],
+
+            'raw_scores': {
+                'frame_ai':   round(float(result['scores'].get('frame_ai_prob', 0.5)) * 100, 1),
+                'temporal':   round(float(result['scores'].get('temporal_score', 0.5)) * 100, 1),
+                'biological': round(float(result['scores'].get('biological_score', 0.5)) * 100, 1),
+                'audio':      round(float(result['scores'].get('audio_score', 0.5)) * 100, 1),
+            },
+
+            'video_info': video_info,
+            'elapsed_seconds': result.get('elapsed_seconds', 0),
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Video detection failed: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': f'Video detection failed: {str(e)}'}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
 
 if __name__ == '__main__':

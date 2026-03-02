@@ -28,18 +28,76 @@ from temporal_signals import analyze_temporal_signals
 from biological_signals import analyze_biological_signals
 from audio_analyzer import analyze_audio
 
-# Try to import the trained EfficientNet model
-try:
-    from ensemble_detector import get_efficientnet_prediction
-    EFFICIENTNET_AVAILABLE = True
-except ImportError:
-    EFFICIENTNET_AVAILABLE = False
+# ── Load video-specific EfficientNet (trained in Phase A) ────────────────────
+_video_model = None
+_video_device = None
+VIDEO_MODEL_PATH = Path(__file__).parent / "models" / "trained" / "video_efficientnet_b0.pth"
+EFFICIENTNET_AVAILABLE = False
 
-# Try to import video meta-voter
+def _load_video_model():
+    global _video_model, _video_device, EFFICIENTNET_AVAILABLE
+    if _video_model is not None:
+        return
+    try:
+        import torch
+        import timm
+        from torchvision import transforms
+        _video_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=2)
+        model.load_state_dict(torch.load(VIDEO_MODEL_PATH, map_location=_video_device, weights_only=True))
+        model.eval()
+        model = model.to(_video_device)
+        _video_model = model
+        EFFICIENTNET_AVAILABLE = True
+        print(f"  [VideoEfficientNet] Loaded from {VIDEO_MODEL_PATH.name}")
+    except Exception as e:
+        print(f"  [VideoEfficientNet] Failed to load: {e}")
+        EFFICIENTNET_AVAILABLE = False
+
+def _predict_frame(frame_bgr):
+    """
+    Predict AI probability for a single BGR frame using video EfficientNet.
+    Crops face first to match DF40 training data format (tight face crops).
+    Falls back to full frame if no face detected.
+    """
+    import torch
+    from torchvision import transforms
+    from PIL import Image
+
+    # Crop face to match DF40 training format
+    try:
+        from video_processor import detect_face
+        face_bbox = detect_face(frame_bgr)
+        if face_bbox is not None:
+            x, y, w, h = face_bbox
+            face_crop = frame_bgr[y:y+h, x:x+w]
+            if face_crop.size > 0:
+                frame_bgr = face_crop
+    except Exception:
+        pass  # Fall back to full frame
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+    tensor = transform(img).unsqueeze(0).to(_video_device)
+    with torch.no_grad():
+        logits = _video_model(tensor)
+        prob = torch.softmax(logits, dim=1)[0][1].item()  # class 1 = fake
+    return prob
+
+# Load model at module startup
+if VIDEO_MODEL_PATH.exists():
+    _load_video_model()
+
+# ── Load video meta-voter ─────────────────────────────────────────────────────
 try:
     from video_meta_voter import VideoMetaVoter
     _voter = VideoMetaVoter()
-    META_VOTER_AVAILABLE = _voter.is_trained()
+    # Only use meta-voter if it has decent accuracy (>65%)
+    META_VOTER_AVAILABLE = _voter.is_trained() and _voter.cv_accuracy > 0.65
 except ImportError:
     META_VOTER_AVAILABLE = False
 
@@ -50,30 +108,23 @@ except ImportError:
 
 def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
     """
-    Run EfficientNet on sampled frames to get per-frame AI probability.
-    Returns aggregate statistics across all frames.
+    Run video-specific EfficientNet on sampled frames.
+    Uses video_efficientnet_b0.pth trained in Phase A (98% val accuracy).
     """
     if not EFFICIENTNET_AVAILABLE or not frames:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
 
-    import tempfile
-    temp_dir = temp_dir or tempfile.mkdtemp()
     probabilities = []
+    # Sample up to 30 frames evenly across the video
+    step = max(1, len(frames) // 30)
+    sampled = frames[::step][:30]
 
-    for i, frame in enumerate(frames[:20]):  # Sample up to 20 frames for speed
-        path = os.path.join(temp_dir, f"_frame_{i}.jpg")
-        cv2.imwrite(path, frame)
+    for frame in sampled:
         try:
-            result = get_efficientnet_prediction(path)
-            if result and "probability" in result:
-                probabilities.append(result["probability"])
+            prob = _predict_frame(frame)
+            probabilities.append(prob)
         except Exception:
             pass
-        finally:
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
 
     if not probabilities:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
@@ -156,12 +207,13 @@ def detect_video(video_path: str) -> Dict:
         final_probability = _voter.predict(features)
         method = "trained_meta_voter"
     else:
-        # Weighted average fallback
+        # Weighted average — give most weight to frame model (98% val acc)
+        # Temporal/bio/audio are supporting signals
         weights = {
-            "frame_ai_prob": 0.35,
-            "temporal_score": 0.25,
-            "biological_score": 0.20,
-            "audio_score": 0.20,
+            "frame_ai_prob": 0.60,
+            "temporal_score": 0.20,
+            "biological_score": 0.10,
+            "audio_score": 0.10,
         }
         final_probability = sum(all_scores[k] * weights[k] for k in all_scores)
         method = "weighted_average"

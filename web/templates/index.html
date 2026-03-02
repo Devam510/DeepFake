@@ -36,44 +36,71 @@
         <section id="upload-section" class="upload-section">
             <div class="container">
                 <div class="hero">
-                    <div class="hero-badge">✨ Trained on 1.7M+ images · 7 Forensic Signals · Real-Time</div>
-                    <h1 class="hero-title">Is This Image <span class="gradient-text">AI-Generated?</span></h1>
-                    <p class="hero-subtitle">Upload any image. Our ensemble of deep learning, forensic signals, and cross-model meta-voter analyzes it in seconds.</p>
+                    <div class="hero-badge">&#10024; Trained on 1.7M+ images &middot; 11 Forensic Signals &middot; Real-Time</div>
+                    <h1 class="hero-title">Is This <span class="gradient-text">AI-Generated?</span></h1>
+                    <p class="hero-subtitle">Upload any image or video. Our ensemble of deep learning, forensic signals, and meta-voter analyzes it in seconds.</p>
                 </div>
 
-                <div class="upload-card" id="upload-area">
-                    <div class="upload-inner" id="upload-inner">
-                        <div class="upload-icon-big">📁</div>
-                        <p class="upload-title">Drag & drop your image here</p>
-                        <p class="upload-hint">or <span class="upload-link">click to browse</span></p>
-                        <p class="upload-formats">JPG · PNG · WebP · GIF · Max 16MB</p>
+                <!-- Media Type Tabs -->
+                <div class="media-tabs">
+                    <button class="media-tab active" id="tab-image" onclick="switchTab('image')">&#128444;&#65039; Image</button>
+                    <button class="media-tab" id="tab-video" onclick="switchTab('video')">&#127916; Video</button>
+                </div>
+
+                <!-- IMAGE Upload Panel -->
+                <div id="upload-panel-image">
+                    <div class="upload-card" id="upload-area">
+                        <div class="upload-inner" id="upload-inner">
+                            <div class="upload-icon-big">&#128193;</div>
+                            <p class="upload-title">Drag &amp; drop your image here</p>
+                            <p class="upload-hint">or <span class="upload-link">click to browse</span></p>
+                            <p class="upload-formats">JPG &middot; PNG &middot; WebP &middot; GIF &middot; Max 500MB</p>
+                        </div>
+                        <input type="file" id="file-input" accept="image/*" hidden>
                     </div>
-                    <input type="file" id="file-input" accept="image/*" hidden>
+                    <div id="preview-section" class="preview-section hidden">
+                        <div class="preview-card">
+                            <img id="preview-image" class="preview-image" alt="Preview">
+                            <div class="preview-actions">
+                                <button id="analyze-btn" class="btn-primary" aria-label="Analyze image">
+                                    <span class="btn-text">&#128270; Analyze Image</span>
+                                    <span class="btn-loader hidden"></span>
+                                </button>
+                                <button id="clear-btn" class="btn-ghost" aria-label="Clear selection">&#10005; Clear</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Preview -->
-                <div id="preview-section" class="preview-section hidden">
-                    <div class="preview-card">
-                        <img id="preview-image" class="preview-image" alt="Preview">
-                        <div class="preview-actions">
-                            <button id="analyze-btn" class="btn-primary" aria-label="Analyze image">
-                                <span class="btn-text">🔎 Analyze Image</span>
-                                <span class="btn-loader hidden"></span>
-                            </button>
-                            <button id="clear-btn" class="btn-ghost" aria-label="Clear selection">✕ Clear</button>
+                <!-- VIDEO Upload Panel -->
+                <div id="upload-panel-video" class="hidden">
+                    <div class="upload-card" id="upload-area-video">
+                        <div class="upload-inner" id="upload-inner-video">
+                            <div class="upload-icon-big">&#127916;</div>
+                            <p class="upload-title">Drag &amp; drop your video here</p>
+                            <p class="upload-hint">or <span class="upload-link" id="video-browse-link">click to browse</span></p>
+                            <p class="upload-formats">MP4 &middot; AVI &middot; MOV &middot; WEBM &middot; MKV &middot; Max 500MB</p>
+                        </div>
+                        <input type="file" id="video-input" accept="video/*" hidden>
+                    </div>
+                    <div id="video-preview-section" class="preview-section hidden">
+                        <div class="preview-card">
+                            <video id="preview-video" class="preview-image" controls muted playsinline style="max-height:280px;object-fit:contain;background:#000;border-radius:12px;width:100%"></video>
+                            <div class="preview-actions">
+                                <button id="analyze-video-btn" class="btn-primary" aria-label="Analyze video">
+                                    <span class="btn-text">&#128270; Analyze Video</span>
+                                    <span class="btn-loader hidden"></span>
+                                </button>
+                                <button id="clear-video-btn" class="btn-ghost" aria-label="Clear selection">&#10005; Clear</button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Model strip -->
                 <div class="model-strip">
-                    <div class="model-pill">🤖 EfficientNet-B0</div>
-                    <div class="model-pill">📊 Statistical DCT</div>
-                    <div class="model-pill">🔬 Noise PRNU</div>
-                    <div class="model-pill">💡 Lighting</div>
-                    <div class="model-pill">✨ Reflections</div>
-                    <div class="model-pill">🌀 GAN Fingerprint</div>
-                    <div class="model-pill">🗳️ Meta-Voter</div>
+                    <span id="pill-image-models">&#129302; EfficientNet &middot; &#128202; DCT &middot; &#128302; PRNU &middot; &#128161; Lighting &middot; &#10024; Reflections &middot; &#127744; GAN &middot; &#128371;&#65039; Meta-Voter</span>
+                    <span id="pill-video-models" class="hidden">&#127902;&#65039; Video EfficientNet &middot; &#9201;&#65039; Temporal &middot; &#128147; Biological &middot; &#128266; Audio</span>
                 </div>
             </div>
         </section>
@@ -95,6 +122,11 @@
                 <div class="verdict-card" id="verdict-card">
                     <div class="verdict-image-col">
                         <img id="result-image" class="result-image" alt="Analyzed image">
+                        <video id="result-video" class="hidden" controls muted playsinline></video>
+                        <div id="video-info-badge" class="video-info-badge hidden"></div>
+                        <video id="result-video" class="result-image hidden" controls muted style="background:#000"></video>
+                        <!-- Video info badge -->
+                        <div id="video-info-badge" class="video-info-badge hidden"></div>
                     </div>
                     <div class="verdict-info-col">
                         <div class="ai-prob-display">
@@ -121,20 +153,20 @@
 
                         <!-- Raw scores mini grid -->
                         <div class="raw-scores-grid" id="raw-scores-grid">
-                            <div class="raw-score-chip">
-                                <div class="rsc-label">EfficientNet</div>
+                            <div class="raw-score-chip" id="chip-eff">
+                                <div class="rsc-label" id="chip-eff-label">EfficientNet</div>
                                 <div class="rsc-value" id="raw-eff">—</div>
                             </div>
-                            <div class="raw-score-chip">
-                                <div class="rsc-label">Statistical</div>
+                            <div class="raw-score-chip" id="chip-stat">
+                                <div class="rsc-label" id="chip-stat-label">Statistical</div>
                                 <div class="rsc-value" id="raw-stat">—</div>
                             </div>
-                            <div class="raw-score-chip">
-                                <div class="rsc-label">Forensic</div>
+                            <div class="raw-score-chip" id="chip-forensic">
+                                <div class="rsc-label" id="chip-forensic-label">Forensic</div>
                                 <div class="rsc-value" id="raw-forensic">—</div>
                             </div>
-                            <div class="raw-score-chip">
-                                <div class="rsc-label">Meta-Voter</div>
+                            <div class="raw-score-chip" id="chip-voter">
+                                <div class="rsc-label" id="chip-voter-label">Meta-Voter</div>
                                 <div class="rsc-value" id="raw-voter">—</div>
                             </div>
                         </div>
@@ -198,7 +230,7 @@
                 </div>
 
                 <div class="bottom-actions">
-                    <button id="analyze-another-btn" class="btn-primary">🔎 Analyze Another Image</button>
+                    <button id="analyze-another-btn" class="btn-primary">🔎 Analyze Another</button>
                 </div>
 
             </div>

@@ -42,3 +42,11 @@ logs/
 # Temp
 tmp/
 temp/
+
+# AI Agent configs (local only)
+.agents/
+
+# Temp test scripts
+_*.py
+*.txt
+css_chunk.txt
