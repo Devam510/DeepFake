@@ -47,39 +47,93 @@ warnings.filterwarnings("ignore")
 # DATA SCANNER
 # ══════════════════════════════════════════════════════════════════════════════
 def scan_datasets(base_dir: str):
-    """Scans raw data directory for any available real and fake audio."""
+    """
+    Scans raw data directory for real and fake audio.
+    Returns files grouped by source subdirectory (dataset name)
+    so that --max-per-dataset can sample equally from each source.
+    """
     base_path = Path(base_dir)
     if not base_path.exists():
         print(f"Directory {base_dir} not found.")
-        return [], []
-        
-    real_files = []
-    fake_files = []
+        return {}, {}
 
-    # Map all supported extensions
     exts = ["*.wav", "*.flac", "*.mp3", "*.ogg"]
 
-    print("[*] Scanning for REAL audio...")
-    real_dir = base_path / "real"
-    if real_dir.exists():
+    def scan_by_source(root_dir, label):
+        """Returns dict: {source_name -> [Path, ...]} grouped by top-level subdir."""
+        grouped = {}
+        if not root_dir.exists():
+            return grouped
+        # Group by immediate subdirectory under root_dir
+        # e.g. fake/asvspoof/... → 'asvspoof'
+        #      fake/wavefake/...  → 'wavefake'
+        #      fake/custom_tts/.. → 'custom_tts'
+        #      real/librispeech/. → 'librispeech'
+        # Files directly in root go into '__root__'
         for ext in exts:
-            found = list(real_dir.rglob(ext))
-            real_files.extend(found)
-            if found: print(f"  -> Found {len(found)} REAL files matching {ext}")
+            for fpath in root_dir.rglob(ext):
+                try:
+                    # relative to root_dir  e.g.  asvspoof/LA/LA/.../foo.flac
+                    rel = fpath.relative_to(root_dir)
+                    source = rel.parts[0] if len(rel.parts) > 1 else "__root__"
+                except ValueError:
+                    source = "__root__"
+                grouped.setdefault(source, []).append(fpath)
+        return grouped
+
+    print("[*] Scanning for REAL audio...")
+    real_dir  = base_path / "real"
+    real_grouped = scan_by_source(real_dir, "real")
+    for src, files in sorted(real_grouped.items()):
+        print(f"  -> [{src}] {len(files):,} REAL files")
 
     print("[*] Scanning for FAKE audio...")
-    fake_dir = base_path / "fake"
-    if fake_dir.exists():
-        for ext in exts:
-            found = list(fake_dir.rglob(ext))
-            fake_files.extend(found)
-            if found: print(f"  -> Found {len(found)} FAKE files matching {ext}")
+    fake_dir  = base_path / "fake"
+    fake_grouped = scan_by_source(fake_dir, "fake")
+    for src, files in sorted(fake_grouped.items()):
+        print(f"  -> [{src}] {len(files):,} FAKE files")
 
-    if not real_files and not fake_files:
-        print("\n[!] CRITICAL: No audio files found to train on!")
-        print(f"Please put some audio files in {base_dir}/real/ and {base_dir}/fake/")
+    total_real = sum(len(v) for v in real_grouped.values())
+    total_fake = sum(len(v) for v in fake_grouped.values())
+    print(f"[*] Total: {total_real:,} real across {len(real_grouped)} source(s) | "
+          f"{total_fake:,} fake across {len(fake_grouped)} source(s)")
 
-    return real_files, fake_files
+    if not real_grouped and not fake_grouped:
+        print("\n[!] CRITICAL: No audio files found!")
+        print(f"Please put audio in {base_dir}/real/ and {base_dir}/fake/")
+
+    return real_grouped, fake_grouped
+
+
+def diversity_sample(grouped: dict, max_per_dataset: int, max_total: int = 0):
+    """
+    Sample up to max_per_dataset files from EACH dataset source,
+    then cap the total at max_total if set.
+    This prevents any single large dataset from dominating training
+    and forces the model to learn generalizable features.
+
+    Args:
+        grouped:         {source_name -> [Path, ...]}
+        max_per_dataset: max clips taken from any single source (0 = no limit)
+        max_total:       overall cap after diversity sampling (0 = no limit)
+
+    Returns:
+        flat list of Paths
+    """
+    import random
+    result = []
+    for source, paths in sorted(grouped.items()):
+        shuffled = paths.copy()
+        random.shuffle(shuffled)
+        cap = max_per_dataset if max_per_dataset > 0 else len(shuffled)
+        selected = shuffled[:cap]
+        result.extend(selected)
+        print(f"  [{source:25s}] using {len(selected):,} / {len(paths):,} files")
+
+    random.shuffle(result)
+    if max_total > 0 and len(result) > max_total:
+        result = result[:max_total]
+    return result
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FEATURE EXTRACTION ENGINE
@@ -167,8 +221,10 @@ def extract_all_features(real_paths, fake_paths, max_samples=None):
 
             tensor_input = torch.tensor(y_16k).unsqueeze(0).float().to(device)
             with torch.no_grad():
-                l3_score     = neural_system(tensor_input).cpu().item()
-                l3_ood_embed = neural_system.extract_embedding_for_ood(tensor_input).cpu().numpy().mean()
+                # Single GPU pass: Wav2Vec2 runs ONCE, returns both score + embedding
+                logits, ood_embed = neural_system.forward_features(tensor_input)
+                l3_score     = logits.cpu().item()
+                l3_ood_embed = ood_embed.cpu().numpy().mean()
 
             feature_vector = [
                 l1.get('inst_phase_variance',  0),
@@ -278,25 +334,51 @@ def train_production_classifier(X, y):
 def main():
     import argparse
     parser = argparse.ArgumentParser("Audio Forensics System Trainer")
-    parser.add_argument("--data-dir", type=str, default="data/audio_forensics/raw", help="Path to raw audio")
-    parser.add_argument("--max-samples", type=int, default=1000, help="Limit number of audio clips (for testing)")
+    parser.add_argument("--data-dir",         type=str, default="data/audio_forensics/raw",
+                        help="Path to raw audio data")
+    parser.add_argument("--max-samples",      type=int, default=0,
+                        help="Hard cap on total files (0 = no limit). Old-style shorthand.")
+    parser.add_argument("--max-per-dataset",  type=int, default=20000,
+                        help="Max clips sampled from EACH dataset source folder. "
+                             "Prevents any single dataset from dominating training. "
+                             "Default: 20000 per source (good diversity + manageable time). "
+                             "Set to 0 for no per-source limit.")
     args = parser.parse_args()
 
-    # 1. Look for whatever data is currently on disk
-    real_paths, fake_paths = scan_datasets(args.data_dir)
-    
-    if not real_paths and not fake_paths:
+    # 1. Scan — returns files grouped by source
+    real_grouped, fake_grouped = scan_datasets(args.data_dir)
+
+    if not real_grouped and not fake_grouped:
         sys.exit(1)
-        
-    if not real_paths or not fake_paths:
-        print("[!] WARNING: Missing one of the classes (Real or Fake). Cannot train a classifier.")
-        print("    Model requires BOTH real and synthetic examples.")
+    if not real_grouped or not fake_grouped:
+        print("[!] WARNING: Missing one class (Real or Fake). Cannot train classifier.")
         sys.exit(1)
 
-    # 2. Extract 3-Layer Features
-    X, y = extract_all_features(real_paths, fake_paths, max_samples=args.max_samples)
+    # 2. Diversity-aware sampling
+    print("\n[*] Sampling with diversity constraints...")
+    print(f"    max_per_dataset : {args.max_per_dataset if args.max_per_dataset else 'unlimited'}")
+    print(f"    max_samples     : {args.max_samples if args.max_samples else 'unlimited'}")
+    print("  REAL sources:")
+    real_paths = diversity_sample(real_grouped,
+                                  max_per_dataset=args.max_per_dataset,
+                                  max_total=args.max_samples // 2 if args.max_samples else 0)
+    print("  FAKE sources:")
+    fake_paths = diversity_sample(fake_grouped,
+                                  max_per_dataset=args.max_per_dataset,
+                                  max_total=args.max_samples // 2 if args.max_samples else 0)
 
-    # 3. Train & Calibrate Ensemble
+    # Balance real vs fake (smaller set determines size)
+    min_count = min(len(real_paths), len(fake_paths))
+    import random
+    real_paths = random.sample(real_paths, min_count)
+    fake_paths = random.sample(fake_paths, min_count)
+    print(f"\n[*] Final balanced dataset: {min_count:,} real + {min_count:,} fake "
+          f"= {min_count * 2:,} total")
+
+    # 3. Extract 3-Layer Features
+    X, y = extract_all_features(real_paths, fake_paths, max_samples=0)  # already sampled above
+
+    # 4. Train & Calibrate Ensemble
     train_production_classifier(X, y)
 
 if __name__ == "__main__":

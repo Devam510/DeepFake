@@ -91,25 +91,32 @@ class AudioNeuralDetector(nn.Module):
         """
         Takes 16kHz audio waveform array. Returns logits.
         """
-        # audio_array shape needs to be 1D standard waveform or (batch, length)
-        
-        # Extract features (Layer 3 Neural Backbone)
         with torch.no_grad():
             outputs = self.wav2vec2(audio_array)
-            hidden_states = outputs.last_hidden_state # (Batch, Seq, 768)
-            
-        # Temporal analysis
-        temporal_features = self.transformer(hidden_states) # (Batch, 768)
-        
-        # MLP Classification
+            hidden_states = outputs.last_hidden_state  # (Batch, Seq, 768)
+
+        temporal_features = self.transformer(hidden_states)  # (Batch, 768)
         logits = self.mlp(temporal_features)
         return logits
 
+    def forward_features(self, audio_array: torch.Tensor):
+        """
+        Single-pass method: runs Wav2Vec2 ONCE and returns both
+        (logit_score, ood_embedding). Use this instead of calling
+        forward() + extract_embedding_for_ood() separately — it
+        halves GPU time per file during batch feature extraction.
+        """
+        with torch.no_grad():
+            outputs = self.wav2vec2(audio_array)
+            hidden_states = outputs.last_hidden_state  # (Batch, Seq, 768)
+            temporal_features = self.transformer(hidden_states)  # (Batch, 768)
+            logits = self.mlp(temporal_features)       # (Batch, 1)
+        return logits, temporal_features
+
     def extract_embedding_for_ood(self, audio_array: torch.Tensor) -> torch.Tensor:
         """
-        Extract the transformer-pooled feature vector to calculate
-        Energy-based OOD scores or Mahalanobis distances against
-        the training distribution centroids.
+        Extract the transformer-pooled feature vector.
+        Prefer forward_features() when you also need the score.
         """
         with torch.no_grad():
             outputs = self.wav2vec2(audio_array)
