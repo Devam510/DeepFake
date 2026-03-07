@@ -31,6 +31,9 @@ import subprocess
 import time
 from pathlib import Path
 
+# Enable HuggingFace's Rust-based extreme fast downloader
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
 BASE_DIR = Path(r"d:\Devam\Microsoft VS Code\Codes\DeepFake\data\audio_forensics\raw")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -41,7 +44,7 @@ def install(pkg):
 
 def ensure_deps():
     print("[Setup] Checking packages...")
-    for pkg in ["huggingface_hub", "tqdm", "requests"]:
+    for pkg in ["huggingface_hub", "tqdm", "requests", "hf_transfer"]:
         try:
             __import__(pkg.replace("-", "_"))
             print(f"  OK {pkg}")
@@ -196,7 +199,7 @@ def hf_download(repo_id: str, dest: Path, repo_type: str = "dataset"):
                 repo_type=repo_type,
                 local_dir=str(dest),
                 token=token,
-                max_workers=8,       # 8 concurrent file downloads
+                max_workers=16,       # 16 concurrent file downloads
                 ignore_patterns=["*.md", "*.txt", "*.json"] if "asvspoof" not in repo_id else [],
             )
             print(f"\n  OK Done: {repo_id}\n")
@@ -216,20 +219,13 @@ def hf_download(repo_id: str, dest: Path, repo_type: str = "dataset"):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def download_librispeech():
-    """LibriSpeech — Real human speech. train-clean-100 + train-other-500 (~36GB)"""
+    """LibriSpeech — Real human speech. (~36GB) via fast HuggingFace mirror."""
     print("\n" + "="*60)
-    print("[1/6] LibriSpeech (REAL SPEECH) — OpenSLR")
+    print("[1/6] LibriSpeech (REAL SPEECH) — HuggingFace Mirror")
     print("="*60)
     dest = BASE_DIR / "real" / "librispeech"
-
-    parts = [
-        ("https://www.openslr.org/resources/12/train-clean-100.tar.gz", "train-clean-100.tar.gz"),
-        ("https://www.openslr.org/resources/12/train-other-500.tar.gz", "train-other-500.tar.gz"),
-    ]
-    for url, name in parts:
-        fp = download_http(url, dest, name)
-        extract_and_delete(fp, dest)
-
+    # Using k2-fsa/LibriSpeech mirror since OpenSLR throttles to 60kB/s
+    hf_download("k2-fsa/LibriSpeech", dest)
     print("[+] LibriSpeech DONE\n")
 
 
@@ -244,20 +240,13 @@ def download_asvspoof():
 
 
 def download_wavefake():
-    """WaveFake — Multi-vocoder synthetic speech (~72GB). Zenodo CDN."""
+    """WaveFake — Multi-vocoder synthetic speech (~72GB). HuggingFace mirror."""
     print("\n" + "="*60)
-    print("[3/6] WaveFake (FAKE) — Zenodo")
+    print("[3/6] WaveFake (FAKE) — HuggingFace Mirror")
     print("="*60)
     dest = BASE_DIR / "fake" / "wavefake"
-
-    # WaveFake Zenodo record 5642694 — split into LJSpeech + JSUT subsets
-    parts = [
-        ("https://zenodo.org/record/5642694/files/WaveFake.zip?download=1", "WaveFake.zip"),
-    ]
-    for url, name in parts:
-        fp = download_http(url, dest, name)
-        extract_and_delete(fp, dest)
-
+    # Zenodo often drops connections; using HF mirror
+    hf_download("ajaykarthick/wavefake-audio", dest)
     print("[+] WaveFake DONE\n")
 
 
