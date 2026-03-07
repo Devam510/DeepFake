@@ -88,73 +88,125 @@ def extract_all_features(real_paths, fake_paths, max_samples=None):
     """
     Runs files through Layer 1, Layer 2, and Layer 3 extractors.
     Constructs the X (features) and Y (labels) matrices.
+    GPU-accelerated: Wav2Vec2 (Layer 3) runs on CUDA if available.
+    Includes checkpoint/resume support for long full-dataset runs.
     """
+    # ── Device setup ─────────────────────────────────────────────────────────
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[*] Device: {device}", end="")
+    if device.type == "cuda":
+        print(f" ({torch.cuda.get_device_name(0)}, "
+              f"{torch.cuda.get_device_properties(0).total_memory // 1024**3}GB VRAM)")
+    else:
+        print(" (CPU — install torch+cu118 for GPU acceleration)")
+
     audio_system = AdvancedAudioForensics()
     neural_system = AudioNeuralDetector()
-    neural_system.eval() # Set torch model to evaluation mode
-    
-    # Optional cap for quick testing
+    neural_system.eval()
+    neural_system = neural_system.to(device)  # Move Wav2Vec2 to GPU
+
+    # ── Optional cap for quick testing ────────────────────────────────────────
     if max_samples:
         import random
-        real_paths = random.sample(real_paths, min(len(real_paths), max_samples//2))
-        fake_paths = random.sample(fake_paths, min(len(fake_paths), max_samples//2))
-
-    X, y_labels = [], []
-    failed = 0
+        real_paths = random.sample(real_paths, min(len(real_paths), max_samples // 2))
+        fake_paths = random.sample(fake_paths, min(len(fake_paths), max_samples // 2))
 
     all_files = [(p, 0) for p in real_paths] + [(p, 1) for p in fake_paths]
-    
-    print(f"\n[*] Extracting 3-Layer Forensics for {len(all_files)} audio clips...")
-    for filepath, label in tqdm(all_files, desc="Extracting Features"):
+    print(f"[*] Total files to process: {len(all_files):,} "
+          f"({len(real_paths):,} real + {len(fake_paths):,} fake)")
+
+    # ── Resume support — load checkpoint if it exists ─────────────────────────
+    checkpoint_path = Path("models/audio_features_checkpoint.pkl")
+    checkpoint_path.parent.mkdir(exist_ok=True)
+    X, y_labels, done_paths = [], [], set()
+
+    if checkpoint_path.exists():
+        print(f"[*] Resuming from checkpoint: {checkpoint_path}")
+        with open(checkpoint_path, "rb") as f:
+            ckpt = pickle.load(f)
+        X          = ckpt["X"]
+        y_labels   = ckpt["y_labels"]
+        done_paths = set(ckpt["done_paths"])
+        print(f"    Already processed: {len(done_paths):,} files. "
+              f"Remaining: {len(all_files) - len(done_paths):,}")
+
+    failed = 0
+    SAVE_EVERY = 500   # checkpoint every N files
+
+    print(f"\n[*] Extracting 3-Layer Forensics...")
+    for i, (filepath, label) in enumerate(tqdm(all_files, desc="Extracting", unit="file")):
         file_str = str(filepath)
+
+        # Skip already-processed files (resume)
+        if file_str in done_paths:
+            continue
+
         data = audio_system.load_and_preprocess(file_str)
         if data is None:
             failed += 1
+            done_paths.add(file_str)
             continue
-            
+
         y, sr = data
-        
+
         try:
-            # --- Layer 1 & 2 ---
+            # --- Layer 1 & 2 (CPU, fast) ---
             l1 = audio_system.layer1_signal_forensics(y, sr)
             l2 = audio_system.layer2_speech_behavior(y, sr)
-            
-            # --- Layer 3 ---
-            # Model heavily expects 16kHz
+
+            # --- Layer 3 (GPU-accelerated Wav2Vec2) ---
             if sr != 16000:
                 y_16k = librosa.resample(y, orig_sr=sr, target_sr=16000)
             else:
                 y_16k = y
-                
-            tensor_input = torch.tensor(y_16k).unsqueeze(0).float()
-            with torch.no_grad():
-                l3_score = neural_system(tensor_input).item()
-                # Assuming OOD extracts a flattened vector representation
-                l3_ood_embed = neural_system.extract_embedding_for_ood(tensor_input).numpy().mean()
 
-            # Flatten into a single row
+            # Clip to max 10 seconds to keep VRAM usage bounded on GTX 1650
+            max_samples_wav = 16000 * 10
+            if len(y_16k) > max_samples_wav:
+                y_16k = y_16k[:max_samples_wav]
+
+            tensor_input = torch.tensor(y_16k).unsqueeze(0).float().to(device)
+            with torch.no_grad():
+                l3_score     = neural_system(tensor_input).cpu().item()
+                l3_ood_embed = neural_system.extract_embedding_for_ood(tensor_input).cpu().numpy().mean()
+
             feature_vector = [
-                l1.get('inst_phase_variance', 0),
-                l1.get('rt60_estimate', 0),
-                l1.get('mfcc_variance', 0),
-                l1.get('spectral_flatness_var', 0),
-                l1.get('zcr_variance', 0),
-                l1.get('codec_banding_score', 0),
-                l2.get('pause_ratio', 0),
-                l2.get('pitch_drift_over_time', 0),
+                l1.get('inst_phase_variance',  0),
+                l1.get('rt60_estimate',        0),
+                l1.get('mfcc_variance',        0),
+                l1.get('spectral_flatness_var',0),
+                l1.get('zcr_variance',         0),
+                l1.get('codec_banding_score',  0),
+                l2.get('pause_ratio',          0),
+                l2.get('pitch_drift_over_time',0),
                 l3_score,
-                l3_ood_embed
+                l3_ood_embed,
             ]
-            
+
             X.append(feature_vector)
             y_labels.append(label)
+            done_paths.add(file_str)
 
         except Exception as e:
             failed += 1
-            # print(f"Error on {filepath}: {e}")
+            done_paths.add(file_str)
             continue
 
-    print(f"\n[+] Extraction complete. Success: {len(X)} | Failed: {failed}")
+        # ── Save checkpoint every SAVE_EVERY files ────────────────────────────
+        if (i + 1) % SAVE_EVERY == 0:
+            with open(checkpoint_path, "wb") as f:
+                pickle.dump({"X": X, "y_labels": y_labels,
+                             "done_paths": list(done_paths)}, f)
+            real_done = sum(1 for p, l in all_files[:i+1] if l == 0 and str(p) in done_paths)
+            fake_done = sum(1 for p, l in all_files[:i+1] if l == 1 and str(p) in done_paths)
+            tqdm.write(f"  [Checkpoint] {len(X):,} features saved "
+                       f"({real_done:,} real / {fake_done:,} fake | {failed} failed)")
+
+    # Clean up checkpoint after successful completion
+    if checkpoint_path.exists():
+        checkpoint_path.unlink()
+
+    print(f"\n[+] Extraction complete. Success: {len(X):,} | Failed: {failed}")
     return np.array(X), np.array(y_labels)
 
 # ══════════════════════════════════════════════════════════════════════════════

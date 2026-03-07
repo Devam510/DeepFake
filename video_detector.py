@@ -207,16 +207,42 @@ def detect_video(video_path: str) -> Dict:
         final_probability = _voter.predict(features)
         method = "trained_meta_voter"
     else:
-        # Weighted average — give most weight to frame model (98% val acc)
-        # Temporal/bio/audio are supporting signals
-        weights = {
-            "frame_ai_prob": 0.60,
-            "temporal_score": 0.20,
-            "biological_score": 0.10,
-            "audio_score": 0.10,
-        }
+        # ── Frame model reliability check ────────────────────────────────────
+        # The EfficientNet was trained on tight DF40 face crops.
+        # On real-world phone videos the face detector often fails and the
+        # model falls back to full frames it has never seen → gives extreme
+        # values (all ≥0.99) on EVERY frame. Detect this and reduce its
+        # weight so biological/temporal signals dominate instead.
+        frame_mean      = frame_result.get("mean_prob", 0.5)
+        frame_std       = frame_result.get("std_prob", 0.5)
+        num_frames      = frame_result.get("num_frames", 0)
+
+        frame_model_unreliable = (
+            num_frames > 0
+            and frame_std < 0.05          # near-identical score on every frame
+            and (frame_mean > 0.95 or frame_mean < 0.05)  # stuck at extreme
+        )
+
+        if frame_model_unreliable:
+            print(f"  ⚠️  Frame model stuck at {frame_mean:.2f} (std={frame_std:.4f})")
+            print(f"      Reducing frame weight — trusting bio/temporal signals instead.")
+            weights = {
+                "frame_ai_prob":    0.10,  # stuck model: minimal influence
+                "temporal_score":   0.40,  # temporal anomalies are reliable
+                "biological_score": 0.35,  # heartbeat/blinks are very reliable
+                "audio_score":      0.15,
+            }
+            method = "weighted_average_bio_dominant"
+        else:
+            weights = {
+                "frame_ai_prob":    0.50,
+                "temporal_score":   0.25,
+                "biological_score": 0.15,
+                "audio_score":      0.10,
+            }
+            method = "weighted_average"
+
         final_probability = sum(all_scores[k] * weights[k] for k in all_scores)
-        method = "weighted_average"
 
     final_probability = min(1.0, max(0.0, final_probability))
 
