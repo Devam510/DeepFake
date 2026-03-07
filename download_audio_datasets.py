@@ -5,12 +5,12 @@ Auto-downloads, resumes, extracts, and validates all datasets.
 Designed for stability and maximum download speed.
 
 Datasets:
-  1. LibriSpeech      → OpenSLR (REAL, ~36GB)
-  2. ASVspoof 2019 LA → HuggingFace (FAKE, ~7.7GB)
-  3. WaveFake         → Zenodo CDN (FAKE, ~70GB)
+  1. LibriSpeech      → HuggingFace mirror (REAL, ~36GB)
+  2. ASVspoof 2019 LA → Kaggle (FAKE, ~7.7GB) [requires kaggle API key]
+  3. WaveFake         → HuggingFace datasets library (FAKE, ~30GB)
   4. Common Voice     → HuggingFace (REAL, ~65GB)
-  5. VoxCeleb1        → HuggingFace (REAL, ~35GB)
-  6. FakeAVCeleb      → HuggingFace (FAKE, ~20GB)
+  5. VoxCeleb1        → HuggingFace Public Subset (REAL, ~1.2GB)
+  6. FakeAVCeleb      → Manual download required (FAKE, ~20GB)
 
 Usage:
   python download_audio_datasets.py --all
@@ -20,6 +20,13 @@ Usage:
   python download_audio_datasets.py --common_voice
   python download_audio_datasets.py --voxceleb
   python download_audio_datasets.py --fakeavceleb
+
+Notes:
+  --asvspoof: Requires Kaggle API. Run: pip install kaggle
+              Then set KAGGLE_USERNAME and KAGGLE_KEY env vars,
+              or place kaggle.json in ~/.kaggle/
+  --wavefake: Uses HuggingFace datasets library (streams & saves audio)
+              Run: pip install datasets soundfile
 """
 
 import os
@@ -42,11 +49,14 @@ BASE_DIR = Path(r"d:\Devam\Microsoft VS Code\Codes\DeepFake\data\audio_forensics
 def install(pkg):
     subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
 
-def ensure_deps():
+def ensure_deps(extra=None):
     print("[Setup] Checking packages...")
-    for pkg in ["huggingface_hub", "tqdm", "requests", "hf_transfer"]:
+    base = ["huggingface_hub", "tqdm", "requests", "hf_transfer"]
+    all_pkgs = base + (extra or [])
+    for pkg in all_pkgs:
+        import_name = pkg.replace("-", "_").replace("soundfile", "soundfile")
         try:
-            __import__(pkg.replace("-", "_"))
+            __import__(import_name)
             print(f"  OK {pkg}")
         except ImportError:
             print(f"  Installing {pkg}...")
@@ -230,24 +240,173 @@ def download_librispeech():
 
 
 def download_asvspoof():
-    """ASVspoof 2019 LA — HuggingFace mirror of full dataset (~7.7GB)"""
+    """ASVspoof 2019 LA — Downloaded via Kaggle API (~7.7GB of real spoofed audio)."""
     print("\n" + "="*60)
-    print("[2/6] ASVspoof 2019 LA (FAKE) — HuggingFace")
+    print("[2/6] ASVspoof 2019 LA (FAKE) — Kaggle")
     print("="*60)
     dest = BASE_DIR / "fake" / "asvspoof"
-    hf_download("LanceaKing/asvspoof2019", dest)
-    print("[+] ASVspoof DONE\n")
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Check for Kaggle credentials
+    kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
+    has_env = os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY")
+    if not kaggle_json.exists() and not has_env:
+        print("  [!] Kaggle credentials not found!")
+        print("  To download ASVspoof 2019 LA:")
+        print("  1. Go to https://www.kaggle.com/settings → API → Create New Token")
+        print("  2. Place the downloaded kaggle.json in: ~/.kaggle/kaggle.json")
+        print("     (Windows: C:\\Users\\<You>\\.kaggle\\kaggle.json)")
+        print("  3. Run: pip install kaggle")
+        print("  4. Run: python download_audio_datasets.py --asvspoof")
+        print("  Alternative: https://datashare.is.ed.ac.uk/handle/10283/3336 (Edinburgh DataShare)")
+        print("  Or Kaggle web: https://www.kaggle.com/datasets/awsaf49/asvpoof-2019-dataset")
+        return
+
+    try:
+        import kaggle
+    except ImportError:
+        install("kaggle")
+        import kaggle
+
+    print(f"  Dest: {dest}")
+    print(f"  Downloading LA partition (~7.7GB)...")
+    try:
+        # Use Kaggle Python API directly (avoids PATH / subprocess issues)
+        from kaggle.api.kaggle_api_extended import KaggleApiExtended
+        api = KaggleApiExtended()
+        api.authenticate()
+        print("  Authenticated with Kaggle OK")
+        api.dataset_download_files(
+            "awsaf49/asvpoof-2019-dataset",
+            path=str(dest),
+            unzip=True,
+            quiet=False
+        )
+        print("[+] ASVspoof DONE\n")
+    except Exception as e:
+        print(f"  [!] Kaggle API download failed: {e}")
+        # Fallback: try to find kaggle.exe in common Windows user Scripts locations
+        import glob as _glob
+        import site
+        kaggle_exe = None
+        search_dirs = []
+        try:
+            for s in site.getsitepackages():
+                search_dirs.append(os.path.join(os.path.dirname(s), "Scripts"))
+        except Exception:
+            pass
+        try:
+            search_dirs.append(os.path.join(os.path.dirname(site.getusersitepackages()), "Scripts"))
+        except Exception:
+            pass
+        for d in search_dirs:
+            hits = _glob.glob(os.path.join(d, "kaggle.exe"))
+            if hits:
+                kaggle_exe = hits[0]
+                break
+
+        if kaggle_exe:
+            print(f"  Found kaggle CLI at: {kaggle_exe}")
+            print("  Retrying with CLI...")
+            try:
+                import subprocess
+                subprocess.run(
+                    [kaggle_exe, "datasets", "download",
+                     "-d", "awsaf49/asvpoof-2019-dataset",
+                     "-p", str(dest), "--unzip"],
+                    check=True
+                )
+                print("[+] ASVspoof DONE\n")
+            except Exception as e2:
+                print(f"  [!] CLI also failed: {e2}")
+                print("  Manual option: https://www.kaggle.com/datasets/awsaf49/asvpoof-2019-dataset")
+        else:
+            print("  [!] Could not locate kaggle.exe on this system.")
+            print("  Manual option: https://www.kaggle.com/datasets/awsaf49/asvpoof-2019-dataset")
 
 
-def download_wavefake():
-    """WaveFake — Multi-vocoder synthetic speech (~72GB). HuggingFace mirror."""
+def download_wavefake(max_samples: int = 5000):
+    """WaveFake — Multi-vocoder synthetic speech via HuggingFace datasets library (~30GB).
+    
+    Uses streaming + save to avoid loading everything into RAM.
+    Set max_samples to limit how many clips you want (full = ~104k clips).
+    """
     print("\n" + "="*60)
-    print("[3/6] WaveFake (FAKE) — HuggingFace Mirror")
+    print("[3/6] WaveFake (FAKE) — HuggingFace datasets library")
     print("="*60)
     dest = BASE_DIR / "fake" / "wavefake"
-    # Zenodo often drops connections; using HF mirror
-    hf_download("ajaykarthick/wavefake-audio", dest)
-    print("[+] WaveFake DONE\n")
+    dest.mkdir(parents=True, exist_ok=True)
+
+    ensure_deps(["datasets", "soundfile"])
+
+    try:
+        from datasets import load_dataset
+        import soundfile as sf
+        import numpy as np
+    except ImportError as e:
+        print(f"  [!] Missing library: {e}")
+        print("  Run: pip install datasets soundfile")
+        return
+
+    print(f"  Repo:   ajaykarthick/wavefake-audio")
+    print(f"  Dest:   {dest}")
+    print(f"  Limit:  {max_samples} samples (pass --wavefake-samples N to change)")
+    print(f"  Note:   Streams directly, resumable by re-running\n")
+
+    # Count already-saved files for resume
+    existing = list(dest.glob("*.wav"))
+    start_idx = len(existing)
+    if start_idx >= max_samples:
+        print(f"  Already have {start_idx} files. Done.")
+        print("[+] WaveFake DONE\n")
+        return
+    if start_idx > 0:
+        print(f"  Resuming from {start_idx} existing files...")
+
+    try:
+        from tqdm import tqdm
+        ds = load_dataset(
+            "ajaykarthick/wavefake-audio",
+            split="train",
+            streaming=True,
+            trust_remote_code=True
+        )
+
+        saved = start_idx
+        skipped = 0
+        target = max_samples - start_idx
+
+        with tqdm(total=target, desc="Saving WaveFake audio", unit="clip") as bar:
+            for i, sample in enumerate(ds):
+                if i < start_idx:
+                    skipped += 1
+                    continue  # Skip already saved
+                if saved >= max_samples:
+                    break
+
+                try:
+                    audio = sample["audio"]
+                    arr = np.array(audio["array"], dtype=np.float32)
+                    sr = audio["sampling_rate"]
+                    out_path = dest / f"wavefake_{saved:06d}.wav"
+                    sf.write(str(out_path), arr, sr, subtype='PCM_16')
+                    saved += 1
+                    bar.update(1)
+                except KeyboardInterrupt:
+                    print(f"\n  Paused at {saved} files. Re-run to resume.")
+                    sys.exit(0)
+                except Exception as e:
+                    continue  # Skip bad samples silently
+
+        print(f"\n  Saved {saved} WaveFake clips to {dest}")
+        print("[+] WaveFake DONE\n")
+
+    except KeyboardInterrupt:
+        print("\n  Paused. Re-run same command to resume.\n")
+        sys.exit(0)
+    except Exception as e:
+        print(f"  [!] WaveFake download failed: {e}")
+        print("  Try: pip install datasets soundfile")
 
 
 def download_common_voice():
@@ -292,13 +451,14 @@ def main():
         description="Audio Forensics Dataset Downloader",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("--all",          action="store_true", help="Download ALL datasets (~200GB)")
-    parser.add_argument("--librispeech",  action="store_true", help="LibriSpeech (~36GB, REAL)")
-    parser.add_argument("--asvspoof",     action="store_true", help="ASVspoof 2019 LA (~7.7GB, FAKE)")
-    parser.add_argument("--wavefake",     action="store_true", help="WaveFake (~72GB, FAKE)")
-    parser.add_argument("--common_voice", action="store_true", help="Common Voice (~65GB, REAL)")
-    parser.add_argument("--voxceleb",     action="store_true", help="VoxCeleb1 (~35GB, REAL)")
-    parser.add_argument("--fakeavceleb",  action="store_true", help="FakeAVCeleb (~20GB, FAKE)")
+    parser.add_argument("--all",              action="store_true", help="Download ALL datasets")
+    parser.add_argument("--librispeech",      action="store_true", help="LibriSpeech (~36GB, REAL)")
+    parser.add_argument("--asvspoof",         action="store_true", help="ASVspoof 2019 LA (~7.7GB, FAKE) [needs Kaggle API]")
+    parser.add_argument("--wavefake",         action="store_true", help="WaveFake via HF datasets (~30GB, FAKE)")
+    parser.add_argument("--wavefake-samples", type=int, default=5000, metavar="N", help="How many WaveFake clips to save (default: 5000)")
+    parser.add_argument("--common_voice",     action="store_true", help="Common Voice (~65GB, REAL)")
+    parser.add_argument("--voxceleb",         action="store_true", help="VoxCeleb1 public subset (~1.2GB, REAL)")
+    parser.add_argument("--fakeavceleb",      action="store_true", help="FakeAVCeleb — prints manual download instructions")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
@@ -313,7 +473,7 @@ def main():
 
     if args.all or args.librispeech:   download_librispeech()
     if args.all or args.asvspoof:      download_asvspoof()
-    if args.all or args.wavefake:      download_wavefake()
+    if args.all or args.wavefake:      download_wavefake(max_samples=args.wavefake_samples)
     if args.all or args.common_voice:  download_common_voice()
     if args.all or args.voxceleb:      download_voxceleb()
     if args.all or args.fakeavceleb:   download_fakeavceleb()
