@@ -34,6 +34,29 @@ function switchTab(tab) {
 
     const hgAudio = document.getElementById('how-grid-audio');
     if (hgAudio) hgAudio.classList.toggle('hidden', !isAudio);
+
+    // Swap Header and Hero Text dynamically
+    const logoSub = document.getElementById('logo-subtitle');
+    const heroBadge = document.getElementById('hero-badge');
+    const heroSub = document.getElementById('hero-subtitle');
+
+    if (logoSub) {
+        if (isImage) logoSub.innerHTML = '7-Signal Ensemble Analysis';
+        else if (isVideo) logoSub.innerHTML = 'Temporal &amp; Frame AI Engine';
+        else if (isAudio) logoSub.innerHTML = 'Acoustic Fingerprinting AI';
+    }
+
+    if (heroBadge) {
+        if (isImage) heroBadge.innerHTML = '&#10024; Trained on 1.7M+ images &middot; 11 Forensic Signals &middot; Real-Time';
+        else if (isVideo) heroBadge.innerHTML = '&#10024; Frame-by-Frame Tracking &middot; Biological Sync &middot; Real-Time';
+        else if (isAudio) heroBadge.innerHTML = '&#10024; Trained on 40,000+ Voices &middot; LightGBM Meta-Ensemble &middot; Wav2Vec2';
+    }
+
+    if (heroSub) {
+        if (isImage) heroSub.innerHTML = 'Upload any image. Our ensemble of deep learning, forensic signals, and meta-voter analyzes it in seconds.';
+        else if (isVideo) heroSub.innerHTML = 'Upload any video. Our smart engine extracts temporal movement and syncs biological vitals to detect deepfakes.';
+        else if (isAudio) heroSub.innerHTML = 'Upload any audio clip. Our neural verification extracts 10 mathematical features to recognize synthesized voices.';
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
