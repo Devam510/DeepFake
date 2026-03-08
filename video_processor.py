@@ -27,9 +27,16 @@ from dataclasses import dataclass, field
 # ── Face detection ────────────────────────────────────────────────────────────
 try:
     import mediapipe as mp
-    _mp_face = mp.solutions.face_detection.FaceDetection(
-        model_selection=1, min_detection_confidence=0.5
-    )
+    old_stderr = os.dup(2)
+    f_null = open(os.devnull, 'w')
+    try:
+        os.dup2(f_null.fileno(), 2)
+        _mp_face = mp.solutions.face_detection.FaceDetection(
+            model_selection=1, min_detection_confidence=0.5
+        )
+    finally:
+        os.dup2(old_stderr, 2)
+        f_null.close()
     MEDIAPIPE_AVAILABLE = True
 except ImportError:
     MEDIAPIPE_AVAILABLE = False

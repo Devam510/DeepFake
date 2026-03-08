@@ -1,5 +1,5 @@
 """
-Video Detector — Main Orchestrator for Video Deepfake Detection
+Video Detector  Main Orchestrator for Video Deepfake Detection
 ================================================================
 
 Combines all video analysis modules:
@@ -14,21 +14,62 @@ Usage:
 """
 
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"      # 0 = INFO, 1 = WARNING, 2 = ERROR, 3 = FATAL
+os.environ["GLOG_minloglevel"] = "2"          # Suppress MediaPipe/GLOG warnings (2 = ERROR)
+os.environ["ABSL_MIN_LOG_LEVEL"] = "2"        # Additional abseil C++ logging
+os.environ["OPENCV_LOG_LEVEL"] = "FATAL"      # Suppress OpenCV warnings
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"     # Suppress OneDNN warnings
 import sys
 import json
 import time
 import cv2
 import numpy as np
+import logging
+logging.getLogger("absl").setLevel(logging.ERROR)
 from pathlib import Path
 from typing import Dict, Optional
 
-# Import our modules
-from video_processor import extract_frames_for_analysis, get_video_info
-from temporal_signals import analyze_temporal_signals
-from biological_signals import analyze_biological_signals
-from audio_analyzer import analyze_audio
+# Completely silence C++ DLLs (MediaPipe, TensorFlow, Abseil) on Windows
+import ctypes
+import io
 
-# ── Load video-specific EfficientNet (trained in Phase A) ────────────────────
+try:
+    # 1. Native Windows API for redirecting the actual console handles
+    STD_ERROR_HANDLE = -12
+    kernel32 = ctypes.windll.kernel32
+    
+    # Create an invisible null file in Windows
+    null_fd = os.open(os.devnull, os.O_RDWR)
+    
+    # 2. Reassign the Python-level FDs
+    old_stderr = os.dup(2)
+    os.dup2(null_fd, 2)
+    
+    # 3. Force the C-Runtime (CRT) to use the new null FD
+    # This specifically catches the Abseil C++ warnings!
+    if os.name == 'nt':
+        import msvcrt
+        libc = ctypes.cdll.msvcrt
+        # Get the OS handle for the null FD
+        null_handle = msvcrt.get_osfhandle(null_fd)
+        # Force the OS handle into the standard error slot
+        kernel32.SetStdHandle(STD_ERROR_HANDLE, null_handle)
+
+    # 4. Import the noisy modules under the shield
+    from video_processor import extract_frames_for_analysis, get_video_info
+    from temporal_signals import analyze_temporal_signals
+    from biological_signals import analyze_biological_signals
+    from audio_analyzer import analyze_audio
+    import mediapipe as mp # Force early load
+    
+finally:
+    # We do NOT restore stderr in this specific script because 
+    # mediapipe initializes threads asynchronously and will spam later.
+    # Leaving stderr disabled for the duration of the script is perfectly fine 
+    # for a production console tool where only JSON/Stdout matters.
+    pass
+
+#  Load video-specific EfficientNet (trained in Phase A) 
 _video_model = None
 _video_device = None
 VIDEO_MODEL_PATH = Path(__file__).parent / "models" / "trained" / "video_efficientnet_b0.pth"
@@ -92,7 +133,7 @@ def _predict_frame(frame_bgr):
 if VIDEO_MODEL_PATH.exists():
     _load_video_model()
 
-# ── Load video meta-voter ─────────────────────────────────────────────────────
+#  Load video meta-voter 
 try:
     from video_meta_voter import VideoMetaVoter
     _voter = VideoMetaVoter()
@@ -102,9 +143,9 @@ except ImportError:
     META_VOTER_AVAILABLE = False
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 #  FRAME-LEVEL AI DETECTION
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 
 def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
     """
@@ -140,9 +181,9 @@ def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 #  MAIN DETECTION PIPELINE
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 
 def detect_video(video_path: str) -> Dict:
     """
@@ -159,34 +200,44 @@ def detect_video(video_path: str) -> Dict:
     if not os.path.exists(video_path):
         return {"error": f"File not found: {video_path}"}
 
-    # ── Step 1: Get video metadata ───────────────────────────────────────────
-    print(f"  🎬 Analyzing: {os.path.basename(video_path)}")
+    #  Step 1: Get video metadata 
+    print(f"   Analyzing: {os.path.basename(video_path)}")
     info = get_video_info(video_path)
     fps = info.fps or 30.0
     print(f"     Duration: {info.duration:.1f}s | FPS: {fps:.0f} | Size: {info.width}x{info.height}")
 
-    # ── Step 2: Extract frames ───────────────────────────────────────────────
-    print(f"  📸 Extracting frames at 2 FPS...")
+    #  Step 2: Extract frames 
+    print(f"   Extracting frames at 2 FPS...")
     frames = extract_frames_for_analysis(video_path, sample_fps=2)
     print(f"     Extracted {len(frames)} frames")
 
     if not frames:
         return {"error": "Could not extract frames from video"}
 
-    # ── Step 3: Run all analyzers ────────────────────────────────────────────
-    print(f"  🔍 Running frame-level AI detection...")
+    #  Step 3: Run all analyzers 
+    print(f"   Running frame-level AI detection...")
     frame_result = analyze_frames_with_model(frames)
 
-    print(f"  ⏱️  Analyzing temporal signals...")
-    temporal_result = analyze_temporal_signals(frames)
+    # Route stderr to devnull to swallow hardcoded c++ mediapipe warnings
+    old_stderr = os.dup(2)
+    f_null = open(os.devnull, 'w')
+    try:
+        os.dup2(f_null.fileno(), 2)
 
-    print(f"  💓 Analyzing biological signals...")
-    biological_result = analyze_biological_signals(frames, fps)
+        print(f"    Analyzing temporal signals...")
+        temporal_result = analyze_temporal_signals(frames)
 
-    print(f"  🔊 Analyzing audio signals...")
-    audio_result = analyze_audio(video_path, frames, fps)
+        print(f"   Analyzing biological signals...")
+        biological_result = analyze_biological_signals(frames, fps)
 
-    # ── Step 4: Combine scores ───────────────────────────────────────────────
+        print(f"   Analyzing audio signals...")
+        audio_result = analyze_audio(video_path, frames, fps)
+
+    finally:
+        os.dup2(old_stderr, 2)
+        f_null.close()
+
+    #  Step 4: Combine scores 
     all_scores = {
         "frame_ai_prob": frame_result["mean_prob"],
         "temporal_score": temporal_result["temporal_score"],
@@ -207,11 +258,11 @@ def detect_video(video_path: str) -> Dict:
         final_probability = _voter.predict(features)
         method = "trained_meta_voter"
     else:
-        # ── Frame model reliability check ────────────────────────────────────
+        #  Frame model reliability check 
         # The EfficientNet was trained on tight DF40 face crops.
         # On real-world phone videos the face detector often fails and the
-        # model falls back to full frames it has never seen → gives extreme
-        # values (all ≥0.99) on EVERY frame. Detect this and reduce its
+        # model falls back to full frames it has never seen  gives extreme
+        # values (all 0.99) on EVERY frame. Detect this and reduce its
         # weight so biological/temporal signals dominate instead.
         frame_mean      = frame_result.get("mean_prob", 0.5)
         frame_std       = frame_result.get("std_prob", 0.5)
@@ -224,8 +275,8 @@ def detect_video(video_path: str) -> Dict:
         )
 
         if frame_model_unreliable:
-            print(f"  ⚠️  Frame model stuck at {frame_mean:.2f} (std={frame_std:.4f})")
-            print(f"      Reducing frame weight — trusting bio/temporal signals instead.")
+            print(f"    Frame model stuck at {frame_mean:.2f} (std={frame_std:.4f})")
+            print(f"      Reducing frame weight  trusting bio/temporal signals instead.")
             weights = {
                 "frame_ai_prob":    0.10,  # stuck model: minimal influence
                 "temporal_score":   0.40,  # temporal anomalies are reliable
@@ -246,7 +297,7 @@ def detect_video(video_path: str) -> Dict:
 
     final_probability = min(1.0, max(0.0, final_probability))
 
-    # ── Step 5: Generate verdict ─────────────────────────────────────────────
+    #  Step 5: Generate verdict 
     if final_probability >= 0.75:
         verdict = "AI-GENERATED"
         confidence = "HIGH"
@@ -265,7 +316,7 @@ def detect_video(video_path: str) -> Dict:
 
     elapsed = time.time() - start_time
 
-    # ── Build signal cards (same format as photo detector for web UI) ────────
+    #  Build signal cards (same format as photo detector for web UI) 
     signals = []
 
     # Frame-level signal
@@ -275,7 +326,7 @@ def detect_video(video_path: str) -> Dict:
         "weight": 0.35,
         "description": f"EfficientNet: {frame_result['num_frames']} frames analyzed, "
                        f"{frame_result['voted_fake']*100:.0f}% voted fake",
-        "icon": "🖼️",
+        "icon": "",
     })
 
     # Temporal signals
@@ -292,7 +343,7 @@ def detect_video(video_path: str) -> Dict:
         "score": temporal_result["temporal_score"],
         "weight": 0.25,
         "description": ", ".join(temporal_details) if temporal_details else "No temporal anomalies",
-        "icon": "⏱️",
+        "icon": "",
     })
 
     # Biological signals
@@ -311,7 +362,7 @@ def detect_video(video_path: str) -> Dict:
         "score": biological_result["biological_score"],
         "weight": 0.20,
         "description": ", ".join(bio_details),
-        "icon": "💓",
+        "icon": "",
     })
 
     # Audio signals
@@ -327,7 +378,7 @@ def detect_video(video_path: str) -> Dict:
         "score": audio_result["audio_score"],
         "weight": 0.20,
         "description": audio_desc,
-        "icon": "🔊",
+        "icon": "",
     })
 
     result = {
@@ -359,17 +410,17 @@ def detect_video(video_path: str) -> Dict:
     print(f"  AI Probability: {final_probability:.1%}")
     print(f"  {'=' * 50}")
     for sig in signals:
-        bar = "█" * int(sig["score"] * 20) + "░" * (20 - int(sig["score"] * 20))
+        bar = "" * int(sig["score"] * 20) + "" * (20 - int(sig["score"] * 20))
         print(f"  {sig['icon']} {sig['name']:25s} {bar} {sig['score']:.2f}")
-    print(f"  ⏱️  Analysis time: {elapsed:.1f}s")
+    print(f"    Analysis time: {elapsed:.1f}s")
     print(f"  {'=' * 50}\n")
 
     return result
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 #  CLI
-# ══════════════════════════════════════════════════════════════════════════════
+# 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

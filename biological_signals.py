@@ -20,10 +20,18 @@ from scipy import signal as scipy_signal
 
 try:
     import mediapipe as mp
-    _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=False, max_num_faces=1,
-        refine_landmarks=True, min_detection_confidence=0.5
-    )
+    import os
+    old_stderr = os.dup(2)
+    f_null = open(os.devnull, 'w')
+    try:
+        os.dup2(f_null.fileno(), 2)
+        _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=False, max_num_faces=1,
+            refine_landmarks=True, min_detection_confidence=0.5
+        )
+    finally:
+        os.dup2(old_stderr, 2)
+        f_null.close()
     MEDIAPIPE_AVAILABLE = True
 except ImportError:
     MEDIAPIPE_AVAILABLE = False

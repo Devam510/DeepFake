@@ -100,7 +100,7 @@ def collect_frame_dataset() -> Tuple[List[str], List[int]]:
             imgs = [f for f in d.rglob("*") if f.suffix.lower() in image_exts]
             paths.extend([str(f) for f in imgs])
             labels.extend([0] * len(imgs))
-            print(f"    ✅ DF40/{real_dir}: {len(imgs):,} real frames")
+            print(f"    [-] DF40/{real_dir}: {len(imgs):,} real frames")
 
     for fake_dir in DF40_FAKE_DIRS:
         d = df40_test / fake_dir
@@ -108,7 +108,7 @@ def collect_frame_dataset() -> Tuple[List[str], List[int]]:
             imgs = [f for f in d.rglob("*") if f.suffix.lower() in image_exts]
             paths.extend([str(f) for f in imgs])
             labels.extend([1] * len(imgs))
-            print(f"    ✅ DF40/{fake_dir}: {len(imgs):,} fake frames")
+            print(f"    [-] DF40/{fake_dir}: {len(imgs):,} fake frames")
 
     # ── Processed video frames (if extracted) ────────────────────────────────
     for proc_dir in PROCESSED.glob("*") if PROCESSED.exists() else []:
@@ -121,7 +121,7 @@ def collect_frame_dataset() -> Tuple[List[str], List[int]]:
             paths.extend([str(f) for f in imgs])
             labels.extend([label] * len(imgs))
             label_str = "real" if is_real else "fake"
-            print(f"    ✅ processed/{proc_dir.name}: {len(imgs):,} {label_str} frames")
+            print(f"    [-] processed/{proc_dir.name}: {len(imgs):,} {label_str} frames")
 
     print(f"\n  Total: {len(paths):,} images ({labels.count(0):,} real + {labels.count(1):,} fake)")
     return paths, labels
