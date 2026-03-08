@@ -340,9 +340,9 @@ def download_wavefake(max_samples: int = 5000):
     ensure_deps(["datasets", "soundfile"])
 
     try:
-        from datasets import load_dataset
         import soundfile as sf
         import numpy as np
+        from io import BytesIO
     except ImportError as e:
         print(f"  [!] Missing library: {e}")
         print("  Run: pip install datasets soundfile")
@@ -350,7 +350,7 @@ def download_wavefake(max_samples: int = 5000):
 
     print(f"  Repo:   ajaykarthick/wavefake-audio")
     print(f"  Dest:   {dest}")
-    print(f"  Limit:  {max_samples} samples (pass --wavefake-samples N to change)")
+    print(f"  Limit:  {max_samples} samples")
     print(f"  Note:   Streams directly, resumable by re-running\n")
 
     # Count already-saved files for resume
@@ -364,38 +364,87 @@ def download_wavefake(max_samples: int = 5000):
         print(f"  Resuming from {start_idx} existing files...")
 
     try:
+        from datasets import load_dataset
+    except ImportError:
+        print("  [!] Run: pip install datasets")
+        return
+
+    try:
         from tqdm import tqdm
+
+        # Load WITHOUT audio decoding — get raw bytes instead
+        # This avoids the torchcodec dependency entirely
         ds = load_dataset(
             "ajaykarthick/wavefake-audio",
             split="train",
             streaming=True,
-            trust_remote_code=True
         )
 
         saved = start_idx
-        skipped = 0
-        target = max_samples - start_idx
+        target = max_samples
 
-        with tqdm(total=target, desc="Saving WaveFake audio", unit="clip") as bar:
+        with tqdm(total=target - start_idx, desc="Saving WaveFake audio", unit="clip") as bar:
             for i, sample in enumerate(ds):
                 if i < start_idx:
-                    skipped += 1
                     continue  # Skip already saved
+
                 if saved >= max_samples:
                     break
 
                 try:
-                    audio = sample["audio"]
-                    arr = np.array(audio["array"], dtype=np.float32)
-                    sr = audio["sampling_rate"]
+                    audio = sample.get("audio") or sample.get("speech") or sample.get("wav")
+
+                    if audio is None:
+                        # Try to find any key that has audio-like data
+                        for key, val in sample.items():
+                            if isinstance(val, dict) and "array" in val:
+                                audio = val
+                                break
+                            elif isinstance(val, (bytes, bytearray)):
+                                # Raw bytes — decode with soundfile
+                                buf = BytesIO(val)
+                                arr, sr = sf.read(buf)
+                                arr = arr.astype(np.float32)
+                                if arr.ndim > 1:
+                                    arr = arr.mean(axis=1)
+                                out_path = dest / f"wavefake_{saved:06d}.wav"
+                                sf.write(str(out_path), arr, sr, subtype='PCM_16')
+                                saved += 1
+                                bar.update(1)
+                                audio = None  # mark as handled
+                                break
+
+                    if audio is None:
+                        continue
+
+                    # audio is a dict with 'array' and 'sampling_rate'
+                    if isinstance(audio, dict):
+                        raw = audio.get("bytes") or audio.get("path")
+                        if raw and isinstance(raw, (bytes, bytearray)):
+                            # Decode raw bytes with soundfile
+                            buf = BytesIO(raw)
+                            arr, sr = sf.read(buf)
+                        elif "array" in audio:
+                            arr = np.array(audio["array"], dtype=np.float32)
+                            sr  = audio["sampling_rate"]
+                        else:
+                            continue
+                    else:
+                        continue
+
+                    arr = np.array(arr, dtype=np.float32)
+                    if arr.ndim > 1:
+                        arr = arr.mean(axis=1)   # stereo → mono
+
                     out_path = dest / f"wavefake_{saved:06d}.wav"
                     sf.write(str(out_path), arr, sr, subtype='PCM_16')
                     saved += 1
                     bar.update(1)
+
                 except KeyboardInterrupt:
                     print(f"\n  Paused at {saved} files. Re-run to resume.")
                     sys.exit(0)
-                except Exception as e:
+                except Exception:
                     continue  # Skip bad samples silently
 
         print(f"\n  Saved {saved} WaveFake clips to {dest}")
@@ -406,7 +455,92 @@ def download_wavefake(max_samples: int = 5000):
         sys.exit(0)
     except Exception as e:
         print(f"  [!] WaveFake download failed: {e}")
-        print("  Try: pip install datasets soundfile")
+        print("  Trying alternative: direct Parquet download via huggingface_hub...")
+        _download_wavefake_parquet(dest, max_samples)
+
+
+def _download_wavefake_parquet(dest: Path, max_samples: int):
+    """
+    Fallback: download WaveFake Parquet files directly and extract audio bytes.
+    Used when datasets library audio decoding fails (e.g. torchcodec missing).
+    """
+    try:
+        import soundfile as sf
+        import numpy as np
+        from io import BytesIO
+        import pandas as pd
+        from huggingface_hub import hf_hub_download, list_repo_files
+        from tqdm import tqdm
+
+        print("  Scanning Parquet files from HuggingFace...")
+        repo_files = list(list_repo_files("ajaykarthick/wavefake-audio", repo_type="dataset"))
+        parquet_files = [f for f in repo_files if f.endswith(".parquet")]
+        print(f"  Found {len(parquet_files)} Parquet shards")
+
+        existing = list(dest.glob("*.wav"))
+        saved = len(existing)
+
+        for pq_file in parquet_files:
+            if saved >= max_samples:
+                break
+            try:
+                local = hf_hub_download(
+                    repo_id="ajaykarthick/wavefake-audio",
+                    repo_type="dataset",
+                    filename=pq_file,
+                )
+                df = pd.read_parquet(local)
+                for _, row in tqdm(df.iterrows(), total=len(df),
+                                   desc=f"  {pq_file.split('/')[-1]}", unit="clip"):
+                    if saved >= max_samples:
+                        break
+                    try:
+                        audio_col = None
+                        for col in ["audio", "speech", "wav"]:
+                            if col in row and row[col] is not None:
+                                audio_col = row[col]
+                                break
+                        if audio_col is None:
+                            continue
+
+                        if isinstance(audio_col, dict):
+                            raw = audio_col.get("bytes") or audio_col.get("path")
+                            if raw and isinstance(raw, (bytes, bytearray)):
+                                buf = BytesIO(raw)
+                                arr, sr = sf.read(buf)
+                            elif "array" in audio_col:
+                                arr = np.array(audio_col["array"], dtype=np.float32)
+                                sr  = audio_col["sampling_rate"]
+                            else:
+                                continue
+                        elif isinstance(audio_col, (bytes, bytearray)):
+                            buf = BytesIO(audio_col)
+                            arr, sr = sf.read(buf)
+                        else:
+                            continue
+
+                        arr = np.array(arr, dtype=np.float32)
+                        if arr.ndim > 1:
+                            arr = arr.mean(axis=1)
+                        out_path = dest / f"wavefake_{saved:06d}.wav"
+                        sf.write(str(out_path), arr, sr, subtype='PCM_16')
+                        saved += 1
+                    except Exception:
+                        continue
+            except Exception as e2:
+                print(f"  Shard error: {e2}")
+                continue
+
+        print(f"  Saved {saved} WaveFake clips to {dest}")
+        if saved > 0:
+            print("[+] WaveFake DONE (via Parquet fallback)\n")
+        else:
+            print("  [!] Both methods failed. WaveFake dataset may have moved.")
+            print("  Manual: https://github.com/RUB-SysSec/WaveFake")
+    except ImportError:
+        print("  [!] Install pandas: pip install pandas pyarrow")
+    except Exception as e:
+        print(f"  [!] Parquet fallback also failed: {e}")
 
 
 def download_common_voice():

@@ -170,12 +170,14 @@ def extract_all_features(real_paths, fake_paths, max_samples=None):
           f"({len(real_paths):,} real + {len(fake_paths):,} fake)")
 
     # ── Resume support — load checkpoint if it exists ─────────────────────────
-    checkpoint_path = Path("models/audio_features_checkpoint.pkl")
+    # We now keep this as a permanent cache. Once extraction finishes, it stays
+    # on disk so you never have to re-extract if the classifier crashes later.
+    checkpoint_path = Path("models/audio_features_cache.pkl")
     checkpoint_path.parent.mkdir(exist_ok=True)
     X, y_labels, done_paths = [], [], set()
 
     if checkpoint_path.exists():
-        print(f"[*] Resuming from checkpoint: {checkpoint_path}")
+        print(f"[*] Found cached features at: {checkpoint_path}")
         with open(checkpoint_path, "rb") as f:
             ckpt = pickle.load(f)
         X          = ckpt["X"]
@@ -183,6 +185,7 @@ def extract_all_features(real_paths, fake_paths, max_samples=None):
         done_paths = set(ckpt["done_paths"])
         print(f"    Already processed: {len(done_paths):,} files. "
               f"Remaining: {len(all_files) - len(done_paths):,}")
+
 
     failed = 0
     SAVE_EVERY = 500   # checkpoint every N files
@@ -258,9 +261,9 @@ def extract_all_features(real_paths, fake_paths, max_samples=None):
             tqdm.write(f"  [Checkpoint] {len(X):,} features saved "
                        f"({real_done:,} real / {fake_done:,} fake | {failed} failed)")
 
-    # Clean up checkpoint after successful completion
-    if checkpoint_path.exists():
-        checkpoint_path.unlink()
+    # Note: We NO LONGER delete the checkpoint file here.
+    # It acts as a permanent cache so we don't lose hours of extraction
+    # if the downstream classifier training fails.
 
     print(f"\n[+] Extraction complete. Success: {len(X):,} | Failed: {failed}")
     return np.array(X), np.array(y_labels)
@@ -297,8 +300,12 @@ def train_production_classifier(X, y):
 
     # 3. Probability Calibration (Crucial for Audio Forensics 'No binary Fake/Real' rule)
     print("  -> Calibrating probabilities (Isotonic Regression)...")
-    calibrated_clf = CalibratedClassifierCV(estimator=base_clf, method='isotonic', cv="prefit")
-    calibrated_clf.fit(X_test, y_test)
+    # Sklearn 1.4+ removed cv="prefit". We now use standard 5-fold CV calibration
+    # which is actually more robust and trains multiple calibrated models natively.
+    calibrated_clf = CalibratedClassifierCV(estimator=base_clf, method='isotonic', cv=5)
+    
+    # Needs to be fit on the whole training set (because cv=5 will split it internally)
+    calibrated_clf.fit(X_train, y_train)
 
     # 4. Evaluation
     y_pred = base_clf.predict(X_test)
