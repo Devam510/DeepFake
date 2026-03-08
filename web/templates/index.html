@@ -274,7 +274,9 @@
         <section id="how-it-works" class="info-section">
             <div class="container">
                 <h2 class="section-title">How It Works</h2>
-                <div class="how-grid">
+                
+                <!-- IMAGE HOW IT WORKS -->
+                <div class="how-grid" id="how-grid-image">
                     <div class="how-card">
                         <div class="how-num">1</div>
                         <h3>Upload Image</h3>
@@ -296,6 +298,55 @@
                         <p>See every signal score, source, and explanation — not just a black-box result.</p>
                     </div>
                 </div>
+
+                <!-- VIDEO HOW IT WORKS -->
+                <div class="how-grid hidden" id="how-grid-video">
+                    <div class="how-card">
+                        <div class="how-num">1</div>
+                        <h3>Upload Video</h3>
+                        <p>Drag & drop or click to upload any MP4, AVI, MOV, WEBM, or MKV up to 500MB.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">2</div>
+                        <h3>Frame & Movement AI</h3>
+                        <p>A smart engine extracts key frames for visual deepfake detection while tracking temporal movement for stutters.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">3</div>
+                        <h3>Biological & Audio Sync</h3>
+                        <p>Advanced lip-sync validators and biological pulse trackers cross-reference the video track with the audio.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">4</div>
+                        <h3>Actionable Insight</h3>
+                        <p>Every frame score, temporal disruption, and audio discrepancy is unified into one confident verdict.</p>
+                    </div>
+                </div>
+
+                <!-- AUDIO HOW IT WORKS -->
+                <div class="how-grid hidden" id="how-grid-audio">
+                    <div class="how-card">
+                        <div class="how-num">1</div>
+                        <h3>Upload Audio</h3>
+                        <p>Drag & drop or click to upload any WAV, MP3, M4A, FLAC, or OGG up to 500MB.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">2</div>
+                        <h3>Acoustic Fingerprinting</h3>
+                        <p>Extracts 10 mathematically advanced voice parameters including Spectral Flatness, MFCC Variance, and Pitch stability.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">3</div>
+                        <h3>Neural Verification</h3>
+                        <p>A heavy-weight LightGBM Meta-Ensemble and Wav2Vec2 pipelines cross-examine the frequency traits to catch cloned voices.</p>
+                    </div>
+                    <div class="how-card">
+                        <div class="how-num">4</div>
+                        <h3>Synthesized Voice Readout</h3>
+                        <p>Provides a definitive breakdown if the voice was AI-synthesized, cloned, or matches authentic human vocal cords.</p>
+                    </div>
+                </div>
+
             </div>
         </section>
 

@@ -24,6 +24,16 @@ function switchTab(tab) {
     document.getElementById('pill-image-models').classList.toggle('hidden', !isImage);
     document.getElementById('pill-video-models').classList.toggle('hidden', !isVideo);
     document.getElementById('pill-audio-models').classList.toggle('hidden', !isAudio);
+
+    // Swap the How It Works section based on the active tab
+    const hgImage = document.getElementById('how-grid-image');
+    if (hgImage) hgImage.classList.toggle('hidden', !isImage);
+
+    const hgVideo = document.getElementById('how-grid-video');
+    if (hgVideo) hgVideo.classList.toggle('hidden', !isVideo);
+
+    const hgAudio = document.getElementById('how-grid-audio');
+    if (hgAudio) hgAudio.classList.toggle('hidden', !isAudio);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
