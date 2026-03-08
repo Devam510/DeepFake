@@ -19,7 +19,6 @@
                 <div class="logo-icon-wrap">🔍</div>
                 <div>
                     <div class="logo-title">DeepFake Detector</div>
-                    <div class="logo-subtitle" id="logo-subtitle">7-Signal Ensemble Analysis</div>
                 </div>
             </div>
             <nav class="nav">
@@ -354,7 +353,9 @@
         <section id="limitations" class="info-section">
             <div class="container">
                 <h2 class="section-title">Known Limitations</h2>
-                <div class="limit-feature-grid">
+                
+                <!-- IMAGE LIMITATIONS -->
+                <div class="limit-feature-grid" id="limit-grid-image">
                     <div class="limit-feature-card">
                         <div class="lfc-icon">⚠️</div>
                         <h3>Not Proof of Authenticity</h3>
@@ -376,6 +377,55 @@
                         <p>All results are probability estimates. No binary real/fake guarantees are made. Always consider context.</p>
                     </div>
                 </div>
+
+                <!-- VIDEO LIMITATIONS -->
+                <div class="limit-feature-grid hidden" id="limit-grid-video">
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">🎞️</div>
+                        <h3>Video Compression</h3>
+                        <p>Heavy compression artifacts from WhatsApp or Twitter can mimic deepfake artifacts and obscure authentic features.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">⏱️</div>
+                        <h3>Very Short Clips</h3>
+                        <p>Videos under a few seconds may lack the temporal data required for accurate movement and pulse tracking.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">🏃🏽</div>
+                        <h3>Extreme Motion</h3>
+                        <p>Rapid camera movements, extreme closeups, and heavy strobe lighting can lower frame confidence.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">📊</div>
+                        <h3>Probabilistic Output</h3>
+                        <p>All results are probability estimates. No binary real/fake guarantees are made. Always consider context.</p>
+                    </div>
+                </div>
+
+                <!-- AUDIO LIMITATIONS -->
+                <div class="limit-feature-grid hidden" id="limit-grid-audio">
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">🔊</div>
+                        <h3>Background Noise</h3>
+                        <p>Heavy background noise, crowd chatter, or overlapping music can interfere with acoustic fingerprinting accuracy.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">📞</div>
+                        <h3>Low Bitrate Audio</h3>
+                        <p>Phone call recordings or extremely compressed files may strip away the neural traits necessary for detection.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">🗣️</div>
+                        <h3>Zero-Shot Cloning</h3>
+                        <p>Top-tier proprietary zero-shot voice cloning may occasionally evade basic acoustic heuristics, though ML catches most.</p>
+                    </div>
+                    <div class="limit-feature-card">
+                        <div class="lfc-icon">⏳</div>
+                        <h3>Short Clips</h3>
+                        <p>Audio clips under 2 seconds typically lack sufficient phonetic variation for high-confidence predictions.</p>
+                    </div>
+                </div>
+
             </div>
         </section>
 

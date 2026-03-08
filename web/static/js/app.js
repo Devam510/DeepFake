@@ -35,21 +35,24 @@ function switchTab(tab) {
     const hgAudio = document.getElementById('how-grid-audio');
     if (hgAudio) hgAudio.classList.toggle('hidden', !isAudio);
 
-    // Swap Header and Hero Text dynamically
-    const logoSub = document.getElementById('logo-subtitle');
+    // Swap the Limitations section based on the active tab
+    const lgImage = document.getElementById('limit-grid-image');
+    if (lgImage) lgImage.classList.toggle('hidden', !isImage);
+
+    const lgVideo = document.getElementById('limit-grid-video');
+    if (lgVideo) lgVideo.classList.toggle('hidden', !isVideo);
+
+    const lgAudio = document.getElementById('limit-grid-audio');
+    if (lgAudio) lgAudio.classList.toggle('hidden', !isAudio);
+
+    // Swap Hero Text dynamically
     const heroBadge = document.getElementById('hero-badge');
     const heroSub = document.getElementById('hero-subtitle');
-
-    if (logoSub) {
-        if (isImage) logoSub.innerHTML = '7-Signal Ensemble Analysis';
-        else if (isVideo) logoSub.innerHTML = 'Temporal &amp; Frame AI Engine';
-        else if (isAudio) logoSub.innerHTML = 'Acoustic Fingerprinting AI';
-    }
 
     if (heroBadge) {
         if (isImage) heroBadge.innerHTML = '&#10024; Trained on 1.7M+ images &middot; 11 Forensic Signals &middot; Real-Time';
         else if (isVideo) heroBadge.innerHTML = '&#10024; Frame-by-Frame Tracking &middot; Biological Sync &middot; Real-Time';
-        else if (isAudio) heroBadge.innerHTML = '&#10024; Trained on 40,000+ Voices &middot; LightGBM Meta-Ensemble &middot; Wav2Vec2';
+        else if (isAudio) heroBadge.innerHTML = '&#10024; Trained on 400,000+ Voices &middot; LightGBM Meta-Ensemble &middot; Wav2Vec2';
     }
 
     if (heroSub) {
