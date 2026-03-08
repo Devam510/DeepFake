@@ -368,17 +368,27 @@ def detect_video(video_path: str) -> Dict:
     # Audio signals
     au = audio_result.get("details", {})
     sync = au.get("lip_sync", {})
-    audio_desc = f"Lip sync: {sync.get('lag_ms', 0)}ms lag"
-    if sync.get("correlation", 0) > 0.5:
-        audio_desc += " (good sync)"
+    voice = au.get("voice", {})
+    
+    audio_desc_parts = []
+    
+    if voice.get("is_advanced_ml"):
+        audio_desc_parts.append("Voice Authenticity: Advanced ML Model")
     else:
-        audio_desc += " (poor sync)"
+        audio_desc_parts.append("Voice Authenticity: Heuristics")
+        
+    lag = sync.get('lag_ms', 0)
+    if sync.get("correlation", 0) > 0.5:
+        audio_desc_parts.append(f"Lip sync: Good ({lag}ms lag)")
+    else:
+        audio_desc_parts.append(f"Lip sync: Poor ({lag}ms lag)")
+        
     signals.append({
         "name": "Audio Analysis",
         "score": audio_result["audio_score"],
         "weight": 0.20,
-        "description": audio_desc,
-        "icon": "",
+        "description": " | ".join(audio_desc_parts),
+        "icon": "🎧",
     })
 
     result = {

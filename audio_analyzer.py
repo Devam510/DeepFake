@@ -36,6 +36,46 @@ try:
 except ImportError:
     MEDIAPIPE_AVAILABLE = False
 
+import pickle
+try:
+    import torch
+    from audio_forensics import AdvancedAudioForensics
+    from audio_neural_model import AudioNeuralDetector
+    ADVANCED_AUDIO_AVAILABLE = True
+except ImportError:
+    ADVANCED_AUDIO_AVAILABLE = False
+
+_audio_ensemble_model = None
+_audio_system = None
+_neural_system = None
+_audio_device = None
+
+def _load_advanced_audio_models():
+    global _audio_ensemble_model, _audio_system, _neural_system, _audio_device
+    if _audio_ensemble_model is not None:
+        return True
+    
+    if not ADVANCED_AUDIO_AVAILABLE:
+        return False
+        
+    model_path = Path(__file__).parent / "models" / "audio_lgbm_ensemble.pkl"
+    if not model_path.exists():
+        return False
+        
+    try:
+        with open(model_path, "rb") as f:
+            _audio_ensemble_model = pickle.load(f)
+            
+        _audio_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        _audio_system = AdvancedAudioForensics()
+        _neural_system = AudioNeuralDetector()
+        _neural_system.eval()
+        _neural_system = _neural_system.to(_audio_device)
+        return True
+    except Exception as e:
+        print(f"  [AudioEnsemble] Failed to load: {e}")
+        return False
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUDIO EXTRACTION
@@ -69,17 +109,69 @@ def extract_audio(video_path: str, output_path: Optional[str] = None) -> Optiona
 
 def analyze_voice_authenticity(audio_path: str) -> Dict:
     """
-    Analyze voice for AI-generation artifacts using MFCC features.
-
-    Real voice: natural spectral variation, formant transitions.
-    AI voice: over-smooth spectral contours, unnatural transitions.
-
-    Returns:
-        dict with spectral_flatness, mfcc_variance, voice_score
+    Analyze voice for AI-generation artifacts.
+    If 'audio_lgbm_ensemble.pkl' exists, uses advanced 3-layer ML detection.
+    Otherwise, falls back to basic heuristic MFCC checks.
     """
     if not LIBROSA_AVAILABLE or audio_path is None:
         return {"spectral_flatness": 0.0, "mfcc_variance": 0.0, "voice_score": 0.5}
 
+    # ----- ADVANCED ML DETECTION -----
+    if _load_advanced_audio_models():
+        try:
+            data = _audio_system.load_and_preprocess(audio_path)
+            if data is not None:
+                y_new, sr_new = data
+
+                # Layer 1 & 2
+                l1 = _audio_system.layer1_signal_forensics(y_new, sr_new)
+                l2 = _audio_system.layer2_speech_behavior(y_new, sr_new)
+
+                # Layer 3
+                if sr_new != 16000:
+                    y_16k = librosa.resample(y_new, orig_sr=sr_new, target_sr=16000)
+                else:
+                    y_16k = y_new
+
+                max_samples_wav = 16000 * 10
+                if len(y_16k) > max_samples_wav:
+                    y_16k = y_16k[:max_samples_wav]
+
+                tensor_input = torch.tensor(y_16k).unsqueeze(0).float().to(_audio_device)
+                with torch.no_grad():
+                    logits, ood_embed = _neural_system.forward_features(tensor_input)
+                    l3_score     = logits.cpu().item()
+                    l3_ood_embed = ood_embed.cpu().numpy().mean()
+
+                feature_vector = [
+                    l1.get('inst_phase_variance',  0),
+                    l1.get('rt60_estimate',        0),
+                    l1.get('mfcc_variance',        0),
+                    l1.get('spectral_flatness_var',0),
+                    l1.get('zcr_variance',         0),
+                    l1.get('codec_banding_score',  0),
+                    l2.get('pause_ratio',          0),
+                    l2.get('pitch_drift_over_time',0),
+                    l3_score,
+                    l3_ood_embed,
+                ]
+
+                # Prediction output is [prob_real, prob_fake]
+                X_np = np.array([feature_vector])
+                prob_fake = float(_audio_ensemble_model.predict_proba(X_np)[0][1])
+
+                return {
+                    "spectral_flatness": round(l1.get('spectral_flatness_var', 0), 6),
+                    "mfcc_variance": round(l1.get('mfcc_variance', 0), 4),
+                    "rolloff_variance": 0.0, 
+                    "zcr_variance": round(l1.get('zcr_variance', 0), 8),
+                    "voice_score": round(prob_fake, 4),
+                    "is_advanced_ml": True
+                }
+        except Exception as e:
+            print(f"  [AudioEnsemble] Advanced extraction failed ({e}), falling back to heuristic...")
+            
+    # ----- FALLBACK BASIC HEURISTIC -----
     try:
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
 
@@ -122,6 +214,7 @@ def analyze_voice_authenticity(audio_path: str) -> Dict:
             "rolloff_variance": round(rolloff_var, 2),
             "zcr_variance": round(zcr_var, 8),
             "voice_score": round(voice_score, 4),
+            "is_advanced_ml": False
         }
     except Exception as e:
         return {"spectral_flatness": 0.0, "mfcc_variance": 0.0, "voice_score": 0.5, "error": str(e)}
