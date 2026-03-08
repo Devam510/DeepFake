@@ -39,12 +39,21 @@ try:
 except ImportError:
     pass
 
+try:
+    from audio_analyzer import analyze_voice_authenticity
+    AUDIO_DETECTOR_AVAILABLE = True
+except ImportError:
+    AUDIO_DETECTOR_AVAILABLE = False
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def allowed_video(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in VIDEO_EXTENSIONS
+
+def allowed_audio(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'wav', 'mp3', 'm4a', 'flac', 'ogg'}
 
 
 def build_signals(ensemble_result: dict) -> list:
@@ -597,6 +606,136 @@ def detect_video_api():
         print(f"[ERROR] Video detection failed: {e}")
         print(traceback.format_exc())
         return jsonify({'error': f'Video detection failed: {str(e)}'}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@app.route('/api/detect-audio', methods=['POST'])
+def detect_audio_api():
+    """
+    Audio deepfake detection endpoint.
+    Accepts WAV/MP3/M4A/FLAC/OGG uploads, runs the audio ML pipeline,
+    returns signal data formatted for the UI.
+    """
+    if not AUDIO_DETECTOR_AVAILABLE:
+        return jsonify({'error': 'Audio detection module not loaded.'}), 500
+
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file provided'}), 400
+
+    file = request.files['audio']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    if not allowed_audio(file.filename):
+        return jsonify({'error': 'Invalid file type. Supported: WAV, MP3, M4A, FLAC, OGG'}), 400
+
+    filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+    try:
+        file.save(filepath)
+    except Exception as e:
+        return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+
+    import time
+    start_time = time.time()
+    
+    try:
+        voice = analyze_voice_authenticity(filepath)
+        
+        if "error" in voice and isinstance(voice["error"], str):
+             return jsonify({'error': voice["error"]}), 500
+             
+        ai_prob = float(voice.get('voice_score', 0.5))
+        overall = int(ai_prob * 100)
+        
+        if ai_prob > 0.70:
+            verdict = "AI-GENERATED"
+            confidence = "HIGH"
+        elif ai_prob > 0.55:
+            verdict = "LIKELY AI-GENERATED"
+            confidence = "MEDIUM"
+        elif ai_prob > 0.40:
+            verdict = "UNCERTAIN"
+            confidence = "LOW"
+        elif ai_prob > 0.25:
+            verdict = "LIKELY REAL"
+            confidence = "MEDIUM"
+        else:
+            verdict = "REAL"
+            confidence = "HIGH"
+            
+        signals = []
+        
+        # Audio Feature Signal
+        score_pct = int(ai_prob * 100)
+        if score_pct > 65: st = 'bad'
+        elif score_pct > 40: st = 'warning'
+        else: st = 'good'
+        
+        is_ml = voice.get("is_advanced_ml", False)
+        desc = "Advanced ML Model (LightGBM Meta-Ensemble over 10 parameters)" if is_ml else "Fallback Heuristic Model (Spectral flatness, MFCC variance)"
+        
+        signals.append({
+            'name': 'Voice Authenticity Analysis',
+            'icon': '🎧',
+            'score': score_pct,
+            'status': st,
+            'source': 'Audio Frequency & Feature Fingerprinting',
+            'explanation': desc
+        })
+        
+        if is_ml:
+            method = "LightGBM + Wav2Vec2"
+        else:
+            method = "MFCC Heuristics"
+
+
+        if verdict == 'AI-GENERATED':
+            summary = f"Audio analysis complete: {overall}% AI likelihood. Acoustic feature matching highly suggests this voice was synthesized."
+        elif verdict in ('REAL', 'LIKELY REAL'):
+            summary = f"Audio analysis complete: {overall}% AI likelihood. Acoustic parameters are consistent with human speech patterns."
+        else:
+            summary = f"Audio analysis inconclusive: {overall}% AI likelihood. The acoustic anomalies were borderline."
+
+        response = {
+            'success':       True,
+            'timestamp':     datetime.now().isoformat(),
+            'filename':      file.filename,
+            'media_type':    'audio',
+            
+            'overall_score': overall,
+            'verdict':       verdict,
+            'confidence':    confidence,
+            'decision_source': method,
+
+            'confidence_interval': {'lower': max(0, overall - 8), 'upper': min(100, overall + 8)},
+            'model_disagreement':  0,
+
+            'signals':     signals,
+            'summary':     summary,
+            'limitations': [
+                "Background noise, strong compression, or music can heavily alter results.",
+                "Short clips (< 2 seconds) lack sufficient phonetic variety for high confidence."
+            ],
+            
+            'raw_scores': {
+                'audio': round(ai_prob * 100, 1),
+            },
+            
+            'elapsed_seconds': round(time.time() - start_time, 1),
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Audio detection failed: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': f'Audio detection failed: {str(e)}'}), 500
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)

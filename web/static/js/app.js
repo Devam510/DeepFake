@@ -10,13 +10,20 @@ let currentTab = 'image';
 function switchTab(tab) {
     currentTab = tab;
     const isVideo = tab === 'video';
+    const isAudio = tab === 'audio';
+    const isImage = tab === 'image';
 
-    document.getElementById('tab-image').classList.toggle('active', !isVideo);
+    document.getElementById('tab-image').classList.toggle('active', isImage);
     document.getElementById('tab-video').classList.toggle('active', isVideo);
-    document.getElementById('upload-panel-image').classList.toggle('hidden', isVideo);
+    document.getElementById('tab-audio').classList.toggle('active', isAudio);
+
+    document.getElementById('upload-panel-image').classList.toggle('hidden', !isImage);
     document.getElementById('upload-panel-video').classList.toggle('hidden', !isVideo);
-    document.getElementById('pill-image-models').classList.toggle('hidden', isVideo);
+    document.getElementById('upload-panel-audio').classList.toggle('hidden', !isAudio);
+
+    document.getElementById('pill-image-models').classList.toggle('hidden', !isImage);
     document.getElementById('pill-video-models').classList.toggle('hidden', !isVideo);
+    document.getElementById('pill-audio-models').classList.toggle('hidden', !isAudio);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -43,8 +50,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadSection = document.getElementById('upload-section');
     const resultsSection = document.getElementById('results-section');
 
+    // Audio
+    const uploadAreaAudio = document.getElementById('upload-area-audio');
+    const audioInput = document.getElementById('audio-input');
+    const audioBrowseLink = document.getElementById('audio-browse-link');
+    const audioPreviewSection = document.getElementById('audio-preview-section');
+    const previewAudio = document.getElementById('preview-audio');
+    const analyzeAudioBtn = document.getElementById('analyze-audio-btn');
+    const clearAudioBtn = document.getElementById('clear-audio-btn');
+
     let selectedFile = null;
     let selectedVideoFile = null;
+    let selectedAudioFile = null;
 
     // ── IMAGE upload interactions ─────────────────────────────────
     uploadArea.addEventListener('click', () => fileInput.click());
@@ -109,6 +126,37 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadAreaVideo.classList.remove('hidden');
     }
 
+    // ── AUDIO upload interactions ─────────────────────────────────
+    uploadAreaAudio.addEventListener('click', () => audioInput.click());
+    if (audioBrowseLink) audioBrowseLink.addEventListener('click', e => { e.stopPropagation(); audioInput.click(); });
+    audioInput.addEventListener('change', e => e.target.files[0] && handleAudioFile(e.target.files[0]));
+
+    uploadAreaAudio.addEventListener('dragover', e => { e.preventDefault(); uploadAreaAudio.classList.add('dragover'); });
+    uploadAreaAudio.addEventListener('dragleave', () => uploadAreaAudio.classList.remove('dragover'));
+    uploadAreaAudio.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadAreaAudio.classList.remove('dragover');
+        const f = e.dataTransfer.files[0];
+        if (f && f.type.startsWith('audio/')) handleAudioFile(f);
+    });
+
+    function handleAudioFile(file) {
+        selectedAudioFile = file;
+        const url = URL.createObjectURL(file);
+        previewAudio.src = url;
+        uploadAreaAudio.classList.add('hidden');
+        audioPreviewSection.classList.remove('hidden');
+    }
+
+    clearAudioBtn.addEventListener('click', resetAudioUpload);
+    function resetAudioUpload() {
+        selectedAudioFile = null;
+        audioInput.value = '';
+        previewAudio.src = '';
+        audioPreviewSection.classList.add('hidden');
+        uploadAreaAudio.classList.remove('hidden');
+    }
+
     // ── IMAGE Analyze ─────────────────────────────────────────────
     analyzeBtn.addEventListener('click', async () => {
         if (!selectedFile) return;
@@ -169,6 +217,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // ── AUDIO Analyze ─────────────────────────────────────────────
+    analyzeAudioBtn.addEventListener('click', async () => {
+        if (!selectedAudioFile) return;
+
+        analyzeAudioBtn.disabled = true;
+        analyzeAudioBtn.querySelector('.btn-text').textContent = 'Analyzing...';
+        analyzeAudioBtn.querySelector('.btn-loader').classList.remove('hidden');
+
+        try {
+            const fd = new FormData();
+            fd.append('audio', selectedAudioFile);
+
+            const res = await fetch('/api/detect-audio', { method: 'POST', body: fd });
+            const data = await res.json();
+
+            if (data.success) {
+                renderResults(data, previewAudio.src, 'audio');
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to analyze audio. Please try again.');
+        } finally {
+            analyzeAudioBtn.disabled = false;
+            analyzeAudioBtn.querySelector('.btn-text').textContent = '🔎 Analyze Audio';
+            analyzeAudioBtn.querySelector('.btn-loader').classList.add('hidden');
+        }
+    });
+
     // ── Render results ────────────────────────────────────────────
     function renderResults(data, mediaSrc, mediaType) {
         uploadSection.classList.add('hidden');
@@ -182,10 +260,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Show correct media element
         const resultImg = document.getElementById('result-image');
         const resultVideo = document.getElementById('result-video');
+        const resultAudioWrapper = document.getElementById('result-audio-wrapper');
+        const resultAudio = document.getElementById('result-audio');
         const videoInfoBadge = document.getElementById('video-info-badge');
 
+        // Reset visibility
+        resultImg.classList.add('hidden');
+        resultVideo.classList.add('hidden');
+        resultAudioWrapper.classList.add('hidden');
+        if (videoInfoBadge) videoInfoBadge.classList.add('hidden');
+
         if (mediaType === 'video') {
-            resultImg.classList.add('hidden');
             resultVideo.src = mediaSrc;
             resultVideo.classList.remove('hidden');
 
@@ -199,9 +284,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update raw score chips for video
             updateVideoChips(data.raw_scores || {});
+
+        } else if (mediaType === 'audio') {
+            resultAudio.src = mediaSrc;
+            resultAudioWrapper.classList.remove('hidden');
+            updateAudioChips(data.raw_scores || {});
+
         } else {
-            resultVideo.classList.add('hidden');
-            if (videoInfoBadge) videoInfoBadge.classList.add('hidden');
             resultImg.src = mediaSrc;
             resultImg.classList.remove('hidden');
             updateImageChips(data.raw_scores || {});
@@ -258,6 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mediaType === 'video') {
             document.getElementById('meta-processing').textContent = `🎬 ${data.video_info?.frames_analyzed || '?'} frames`;
             document.getElementById('meta-filter').textContent = '🎞️ Video Analysis';
+        } else if (mediaType === 'audio') {
+            document.getElementById('meta-processing').textContent = '🎧 Audio Track';
+            document.getElementById('meta-filter').textContent = 'N/A';
         } else {
             const proc = data.image_processing_level || 'unknown';
             const procMap = { minimal_processing: '✅ Minimal', moderate_processing: '⚠️ Moderate', heavy_processing: '🔴 Heavy', unknown: '— Unknown' };
@@ -337,6 +429,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateImageChips(rs) {
+        document.getElementById('chip-eff').classList.remove('hidden');
+        document.getElementById('chip-stat').classList.remove('hidden');
+        document.getElementById('chip-forensic').classList.remove('hidden');
+        document.getElementById('chip-voter').classList.remove('hidden');
+        document.getElementById('chip-audio-only').classList.add('hidden');
+
         document.getElementById('chip-eff-label').textContent = 'EfficientNet';
         document.getElementById('chip-stat-label').textContent = 'Statistical';
         document.getElementById('chip-forensic-label').textContent = 'Forensic';
@@ -348,6 +446,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateVideoChips(rs) {
+        document.getElementById('chip-eff').classList.remove('hidden');
+        document.getElementById('chip-stat').classList.remove('hidden');
+        document.getElementById('chip-forensic').classList.remove('hidden');
+        document.getElementById('chip-voter').classList.remove('hidden');
+        document.getElementById('chip-audio-only').classList.add('hidden');
+
         document.getElementById('chip-eff-label').textContent = 'Frame AI';
         document.getElementById('chip-stat-label').textContent = 'Temporal';
         document.getElementById('chip-forensic-label').textContent = 'Biological';
@@ -358,6 +462,16 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('raw-voter').textContent = rs.audio != null ? rs.audio + '%' : '—';
     }
 
+    function updateAudioChips(rs) {
+        document.getElementById('chip-eff').classList.add('hidden');
+        document.getElementById('chip-stat').classList.add('hidden');
+        document.getElementById('chip-forensic').classList.add('hidden');
+        document.getElementById('chip-voter').classList.add('hidden');
+
+        document.getElementById('chip-audio-only').classList.remove('hidden');
+        document.getElementById('raw-audio-only').textContent = rs.audio != null ? rs.audio + '%' : '—';
+    }
+
     // ── New Analysis Buttons ──────────────────────────────────────
     document.getElementById('new-analysis-btn').addEventListener('click', startOver);
     document.getElementById('analyze-another-btn').addEventListener('click', startOver);
@@ -365,6 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function startOver() {
         resetImageUpload();
         resetVideoUpload();
+        resetAudioUpload();
         resultsSection.classList.add('hidden');
         uploadSection.classList.remove('hidden');
         // Restore whichever tab was last used

@@ -45,6 +45,7 @@
                 <div class="media-tabs">
                     <button class="media-tab active" id="tab-image" onclick="switchTab('image')">&#128444;&#65039; Image</button>
                     <button class="media-tab" id="tab-video" onclick="switchTab('video')">&#127916; Video</button>
+                    <button class="media-tab" id="tab-audio" onclick="switchTab('audio')">&#127911; Audio</button>
                 </div>
 
                 <!-- IMAGE Upload Panel -->
@@ -97,10 +98,38 @@
                     </div>
                 </div>
 
+                <!-- AUDIO Upload Panel -->
+                <div id="upload-panel-audio" class="hidden">
+                    <div class="upload-card" id="upload-area-audio">
+                        <div class="upload-inner" id="upload-inner-audio">
+                            <div class="upload-icon-big">&#127911;</div>
+                            <p class="upload-title">Drag &amp; drop your audio here</p>
+                            <p class="upload-hint">or <span class="upload-link" id="audio-browse-link">click to browse</span></p>
+                            <p class="upload-formats">WAV &middot; MP3 &middot; M4A &middot; FLAC &middot; OGG &middot; Max 500MB</p>
+                        </div>
+                        <input type="file" id="audio-input" accept="audio/*" hidden>
+                    </div>
+                    <div id="audio-preview-section" class="preview-section hidden">
+                        <div class="preview-card">
+                            <div style="background:#111; border-radius:12px; padding:2rem; width:100%; display:flex; justify-content:center; align-items:center; min-height:160px;">
+                                <audio id="preview-audio" controls style="width:100%;"></audio>
+                            </div>
+                            <div class="preview-actions">
+                                <button id="analyze-audio-btn" class="btn-primary" aria-label="Analyze audio">
+                                    <span class="btn-text">&#128270; Analyze Audio</span>
+                                    <span class="btn-loader hidden"></span>
+                                </button>
+                                <button id="clear-audio-btn" class="btn-ghost" aria-label="Clear selection">&#10005; Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Model strip -->
                 <div class="model-strip">
                     <span id="pill-image-models">&#129302; EfficientNet &middot; &#128202; DCT &middot; &#128302; PRNU &middot; &#128161; Lighting &middot; &#10024; Reflections &middot; &#127744; GAN &middot; &#128371;&#65039; Meta-Voter</span>
                     <span id="pill-video-models" class="hidden">&#127902;&#65039; Video EfficientNet &middot; &#9201;&#65039; Temporal &middot; &#128147; Biological &middot; &#128266; Audio</span>
+                    <span id="pill-audio-models" class="hidden">&#127911; Wav2Vec2 &middot; &#128202; MFCC Variance &middot; &#127926; Spectral Features &middot; &#129302; LightGBM Ensemble</span>
                 </div>
             </div>
         </section>
@@ -122,9 +151,10 @@
                 <div class="verdict-card" id="verdict-card">
                     <div class="verdict-image-col">
                         <img id="result-image" class="result-image" alt="Analyzed image">
-                        <video id="result-video" class="hidden" controls muted playsinline></video>
-                        <div id="video-info-badge" class="video-info-badge hidden"></div>
-                        <video id="result-video" class="result-image hidden" controls muted style="background:#000"></video>
+                        <video id="result-video" class="result-image hidden" controls muted playsinline style="background:#000"></video>
+                        <div id="result-audio-wrapper" class="hidden" style="background:#111; border-radius:12px; padding:2rem; width:100%; display:flex; justify-content:center; align-items:center;">
+                            <audio id="result-audio" controls style="width:100%;"></audio>
+                        </div>
                         <!-- Video info badge -->
                         <div id="video-info-badge" class="video-info-badge hidden"></div>
                     </div>
@@ -168,6 +198,10 @@
                             <div class="raw-score-chip" id="chip-voter">
                                 <div class="rsc-label" id="chip-voter-label">Meta-Voter</div>
                                 <div class="rsc-value" id="raw-voter">—</div>
+                            </div>
+                            <div class="raw-score-chip hidden" id="chip-audio-only">
+                                <div class="rsc-label" id="chip-audio-label">LightGBM AI</div>
+                                <div class="rsc-value" id="raw-audio-only">—</div>
                             </div>
                         </div>
                     </div>
