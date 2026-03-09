@@ -70,30 +70,60 @@ def _load_lgbm_model():
         return False
 
 
-def _load_neural_models():
-    """Load the heavy PyTorch neural system (optional, may fail on Windows in Flask)."""
-    global _audio_system, _neural_system, _audio_device
-    if _audio_system is not None:
-        return True
+import subprocess as _subprocess
+import json as _json
+from pathlib import Path as _Path
 
-    if not ADVANCED_AUDIO_AVAILABLE:
-        return False
+_worker_proc = None  # Persistent audio_worker subprocess
 
+
+def _start_worker():
+    """Launch audio_worker.py as a persistent subprocess (safe on Windows)."""
+    global _worker_proc
+    if _worker_proc is not None and _worker_proc.poll() is None:
+        return True  # already running
+
+    worker_path = str(_Path(__file__).parent / "audio_worker.py")
     try:
-        _audio_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        _audio_system = AdvancedAudioForensics()
-        _neural_system = AudioNeuralDetector()
-        _neural_system.eval()
-        _neural_system = _neural_system.to(_audio_device)
+        _worker_proc = _subprocess.Popen(
+            [sys.executable, worker_path],
+            stdin=_subprocess.PIPE,
+            stdout=_subprocess.PIPE,
+            stderr=_subprocess.DEVNULL,
+            text=True,
+            bufsize=1,  # line-buffered
+        )
+        # Wait for ready signal
+        ready_line = _worker_proc.stdout.readline()
+        info = _json.loads(ready_line)
+        neural_ok = info.get("neural", False)
+        print(f"  [AudioWorker] Subprocess started (neural={'yes' if neural_ok else 'no'})")
         return True
     except Exception as e:
-        print(f"  [AudioEnsemble] Neural model unavailable ({e}), will use 2-layer features")
+        print(f"  [AudioWorker] Failed to start subprocess: {e}")
+        _worker_proc = None
         return False
+
+
+def _get_neural_features(audio_path: str) -> dict:
+    """Send audio path to worker subprocess, get back feature dict."""
+    if not _start_worker():
+        return {}
+    try:
+        _worker_proc.stdin.write(audio_path + "\n")
+        _worker_proc.stdin.flush()
+        result_line = _worker_proc.stdout.readline()
+        return _json.loads(result_line)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def _load_advanced_audio_models():
-    """Load all audio models — LightGBM is mandatory, neural is optional."""
-    return _load_lgbm_model()
+    """Load LightGBM and start the neural worker subprocess."""
+    lgbm_ok = _load_lgbm_model()
+    if lgbm_ok:
+        _start_worker()  # non-blocking — spawns in background
+    return lgbm_ok
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -138,75 +168,45 @@ def analyze_voice_authenticity(audio_path: str) -> Dict:
     # ----- ADVANCED ML DETECTION -----
     if _load_lgbm_model():
         try:
-            # Try to load neural model (optional — may fail on Windows in Flask debug mode)
-            neural_ok = _load_neural_models()
-
-            # Load & preprocess audio
             y_new, sr_new = librosa.load(audio_path, sr=None, mono=True)
 
-            if neural_ok and _audio_system is not None:
-                # Full 3-layer extraction path
-                l1 = _audio_system.layer1_signal_forensics(y_new, sr_new)
-                l2 = _audio_system.layer2_speech_behavior(y_new, sr_new)
+            # Get neural features from subprocess worker
+            feats = _get_neural_features(os.path.abspath(audio_path))
+            neural_ok = feats and "error" not in feats and "l3_score" in feats
 
-                if sr_new != 16000:
-                    y_16k = librosa.resample(y_new, orig_sr=sr_new, target_sr=16000)
-                else:
-                    y_16k = y_new
-
-                max_samples_wav = 16000 * 10
-                if len(y_16k) > max_samples_wav:
-                    y_16k = y_16k[:max_samples_wav]
-
-                tensor_input = torch.tensor(y_16k).unsqueeze(0).float().to(_audio_device)
-                with torch.no_grad():
-                    logits, ood_embed = _neural_system.forward_features(tensor_input)
-                    l3_score     = logits.cpu().item()
-                    l3_ood_embed = ood_embed.cpu().numpy().mean()
-
+            if neural_ok:
                 feature_vector = [
-                    l1.get('inst_phase_variance',  0),
-                    l1.get('rt60_estimate',        0),
-                    l1.get('mfcc_variance',        0),
-                    l1.get('spectral_flatness_var',0),
-                    l1.get('zcr_variance',         0),
-                    l1.get('codec_banding_score',  0),
-                    l2.get('pause_ratio',          0),
-                    l2.get('pitch_drift_over_time',0),
-                    l3_score,
-                    l3_ood_embed,
+                    feats.get("inst_phase_variance",   0),
+                    feats.get("rt60_estimate",         0),
+                    feats.get("mfcc_variance",         0),
+                    feats.get("spectral_flatness_var", 0),
+                    feats.get("zcr_variance",          0),
+                    feats.get("codec_banding_score",   0),
+                    feats.get("pause_ratio",           0),
+                    feats.get("pitch_drift_over_time", 0),
+                    feats.get("l3_score",              0),
+                    feats.get("l3_ood_embed",          0),
                 ]
+                mfcc_surface = feats.get("mfcc_variance", 0)
+                flat_surface = feats.get("spectral_flatness_var", 0)
+                zcr_surface  = feats.get("zcr_variance", 0)
             else:
-                # Fast 2-layer fallback (no PyTorch needed) — still uses LightGBM for prediction
+                # 2-layer librosa fallback — no neural features
                 mfccs     = librosa.feature.mfcc(y=y_new, sr=sr_new, n_mfcc=13)
                 mfcc_var  = float(np.mean(np.var(mfccs, axis=1)))
                 flatness  = float(np.mean(librosa.feature.spectral_flatness(y=y_new)))
                 zcr_var   = float(np.var(librosa.feature.zero_crossing_rate(y_new)))
-                rolloff   = librosa.feature.spectral_rolloff(y=y_new, sr=sr_new)
-                rolloff_v = float(np.var(rolloff))
-
                 feature_vector = [
-                    0.0,         # inst_phase_variance  (unavailable)
-                    0.0,         # rt60_estimate        (unavailable)
-                    mfcc_var,    # mfcc_variance
-                    flatness,    # spectral_flatness_var
-                    zcr_var,     # zcr_variance
-                    0.0,         # codec_banding_score  (unavailable)
-                    0.0,         # pause_ratio          (unavailable)
-                    0.0,         # pitch_drift_over_time(unavailable)
-                    0.0,         # l3_score             (no neural model)
-                    0.0,         # l3_ood_embed         (no neural model)
+                    np.nan, np.nan,
+                    mfcc_var, flatness, zcr_var,
+                    np.nan, np.nan, np.nan, np.nan, np.nan,
                 ]
+                mfcc_surface = mfcc_var
+                flat_surface = flatness
+                zcr_surface  = zcr_var
 
-            # LightGBM prediction — always runs regardless of neural availability
             X_np = np.array([feature_vector])
             prob_fake = float(_audio_ensemble_model.predict_proba(X_np)[0][1])
-
-            # Surface-level features for the UI card
-            mfcc_surface = float(np.mean(np.var(
-                librosa.feature.mfcc(y=y_new, sr=sr_new, n_mfcc=13), axis=1)))
-            flat_surface = float(np.mean(librosa.feature.spectral_flatness(y=y_new)))
-            zcr_surface  = float(np.var(librosa.feature.zero_crossing_rate(y_new)))
 
             return {
                 "spectral_flatness": round(flat_surface, 6),
