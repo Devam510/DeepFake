@@ -417,10 +417,19 @@ def train_phase_b(max_videos: int = 500):
                 continue
 
             # Run analyzers
+            print(f"    [DEBUG] Running frame_ai...", flush=True)
             frame_ai = analyze_frames_with_model(frames)
+            
+            print(f"    [DEBUG] Running temporal...", flush=True)
             temporal = analyze_temporal_signals(frames)
+            
+            print(f"    [DEBUG] Running biological...", flush=True)
             biological = analyze_biological_signals(frames, fps)
+            
+            print(f"    [DEBUG] Running audio...", flush=True)
             audio = analyze_audio(video_path, frames, fps, offline_mode=True)
+            
+            print(f"    [DEBUG] All analyzers finished.", flush=True)
 
             # Build feature vector
             feat = {
