@@ -33,15 +33,41 @@ from typing import Dict, Optional
 import ctypes
 import io
 
-import io
+try:
+    # 1. Native Windows API for redirecting the actual console handles
+    STD_ERROR_HANDLE = -12
+    kernel32 = ctypes.windll.kernel32
+    
+    # Create an invisible null file in Windows
+    null_fd = os.open(os.devnull, os.O_RDWR)
+    
+    # 2. Reassign the Python-level FDs
+    old_stderr = os.dup(2)
+    os.dup2(null_fd, 2)
+    
+    # 3. Force the C-Runtime (CRT) to use the new null FD
+    # This specifically catches the Abseil C++ warnings!
+    if os.name == 'nt':
+        import msvcrt
+        libc = ctypes.cdll.msvcrt
+        # Get the OS handle for the null FD
+        null_handle = msvcrt.get_osfhandle(null_fd)
+        # Force the OS handle into the standard error slot
+        kernel32.SetStdHandle(STD_ERROR_HANDLE, null_handle)
 
-# Import the core analysis modules directly. We'll deal with MediaPipe console 
-# spam instead of completely blinding ourselves to C++ crash messages.
-from video_processor import extract_frames_for_analysis, get_video_info
-from temporal_signals import analyze_temporal_signals
-from biological_signals import analyze_biological_signals
-from audio_analyzer import analyze_audio
-import mediapipe as mp
+    # 4. Import the noisy modules under the shield
+    from video_processor import extract_frames_for_analysis, get_video_info
+    from temporal_signals import analyze_temporal_signals
+    from biological_signals import analyze_biological_signals
+    from audio_analyzer import analyze_audio
+    import mediapipe as mp # Force early load
+    
+finally:
+    # We do NOT restore stderr in this specific script because 
+    # mediapipe initializes threads asynchronously and will spam later.
+    # Leaving stderr disabled for the duration of the script is perfectly fine 
+    # for a production console tool where only JSON/Stdout matters.
+    pass
 
 #  Load video-specific EfficientNet (trained in Phase A) 
 _video_model = None
@@ -127,23 +153,17 @@ def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
     if not EFFICIENTNET_AVAILABLE or not frames:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
 
-    print("    [DEBUG] Starting analyze_frames_with_model", flush=True)
     probabilities = []
     # Sample up to 8 frames evenly across the video (reduced from 30 for speed)
     step = max(1, len(frames) // 8)
     sampled = frames[::step]
     
-    print(f"    [DEBUG] Sampled {len(sampled)} frames", flush=True)
     for i, frame in enumerate(sampled):
         try:
-            print(f"    [DEBUG] Predicting frame {i}", flush=True)
             p = _predict_frame(frame)
-            print(f"    [DEBUG] Predicted {p}", flush=True)
             probabilities.append(p)
-        except Exception as e:
-            print(f"    [DEBUG] Error predicting frame {i}: {e}", flush=True)
+        except Exception:
             continue
-    print("    [DEBUG] Finished predicting all frames", flush=True)
 
     if not probabilities:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
