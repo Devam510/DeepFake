@@ -63,8 +63,8 @@ def _load_advanced_audio_models():
         return False
         
     try:
-        with open(model_path, "rb") as f:
-            _audio_ensemble_model = pickle.load(f)
+        import joblib
+        _audio_ensemble_model = joblib.load(model_path)
             
         _audio_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         _audio_system = AdvancedAudioForensics()

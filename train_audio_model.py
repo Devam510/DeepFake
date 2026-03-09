@@ -331,8 +331,8 @@ def train_production_classifier(X, y):
     model_dir = Path("models")
     model_dir.mkdir(exist_ok=True)
     
-    with open(model_dir / "audio_lgbm_ensemble.pkl", "wb") as f:
-        pickle.dump(calibrated_clf, f)
+    import joblib
+    joblib.dump(calibrated_clf, model_dir / "audio_lgbm_ensemble.pkl")
         
     print(f"[+] Multi-Layer Meta-Model saved to: {model_dir / 'audio_lgbm_ensemble.pkl'}")
     return calibrated_clf
