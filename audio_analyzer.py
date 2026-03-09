@@ -408,12 +408,17 @@ def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0) 
         except Exception:
             pass
 
-    scores = {
-        "voice_authenticity": voice["voice_score"],
-        "lip_sync": lip_sync["sync_score"],
-    }
+    is_ml = voice.get("is_advanced_ml", False)
+    voice_score = voice["voice_score"]
+    lip_score = lip_sync["sync_score"]
 
-    overall = scores["voice_authenticity"] * 0.4 + scores["lip_sync"] * 0.6
+    # Give LightGBM voice model dominant weight (0.7).
+    # Lip-sync is a weak signal when face is occluded or audio-only, so 0.3.
+    # Old weights (0.4 voice / 0.6 lip) were diluting the ML score back to ~50%.
+    overall = voice_score * 0.70 + lip_score * 0.30
+
+    voice_method = "LightGBM+Wav2Vec2" if is_ml else "Heuristics"
+    lag_ms = lip_sync.get("lag_ms", 0)
 
     return {
         "audio_score": round(overall, 4),
@@ -421,5 +426,9 @@ def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0) 
             "voice": voice,
             "lip_sync": lip_sync,
         },
-        "individual_scores": scores,
+        "individual_scores": {
+            "voice_authenticity": voice_score,
+            "lip_sync": lip_score,
+        },
+        "description": f"Voice Authenticity: {voice_method} | Lip sync: {'Good' if abs(lag_ms) < 80 else 'Poor'} ({lag_ms}ms lag)",
     }
