@@ -420,7 +420,7 @@ def train_phase_b(max_videos: int = 500):
             frame_ai = analyze_frames_with_model(frames)
             temporal = analyze_temporal_signals(frames)
             biological = analyze_biological_signals(frames, fps)
-            audio = analyze_audio(video_path, frames, fps)
+            audio = analyze_audio(video_path, frames, fps, offline_mode=True)
 
             # Build feature vector
             feat = {
