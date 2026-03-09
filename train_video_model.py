@@ -450,6 +450,9 @@ def train_phase_b(max_videos: int = 500):
             print(f"  💾 Progress saved ({len(features_list)} videos). Re-run to resume.")
             return
         except Exception as e:
+            import traceback
+            print(f"\n  ❌ Error on {video_path}:")
+            traceback.print_exc()
             errors += 1
             processed_paths.add(video_path)
             continue
