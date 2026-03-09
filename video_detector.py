@@ -42,12 +42,6 @@ from temporal_signals import analyze_temporal_signals
 from biological_signals import analyze_biological_signals
 from audio_analyzer import analyze_audio
 import mediapipe as mp
-finally:
-    # We do NOT restore stderr in this specific script because 
-    # mediapipe initializes threads asynchronously and will spam later.
-    # Leaving stderr disabled for the duration of the script is perfectly fine 
-    # for a production console tool where only JSON/Stdout matters.
-    pass
 
 #  Load video-specific EfficientNet (trained in Phase A) 
 _video_model = None
@@ -135,8 +129,8 @@ def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
 
     print("    [DEBUG] Starting analyze_frames_with_model", flush=True)
     probabilities = []
-    # Sample up to 30 frames evenly across the video
-    step = max(1, len(frames) // 30)
+    # Sample up to 8 frames evenly across the video (reduced from 30 for speed)
+    step = max(1, len(frames) // 8)
     sampled = frames[::step]
     
     print(f"    [DEBUG] Sampled {len(sampled)} frames", flush=True)
