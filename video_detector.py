@@ -105,29 +105,27 @@ def _predict_frame(frame_bgr):
     Crops face first to match DF40 training data format (tight face crops).
     Falls back to full frame if no face detected.
     """
-    import torch
-    from torchvision import transforms
-    from PIL import Image
+    try:
+        import torch
+        from torchvision import transforms
+        from PIL import Image
 
-    # In Phase B, frames are extracted by `video_processor.py` before this
-    # function is called. We should avoid importing `detect_face` inline here
-    # because it dynamically loads MediaPipe C++ DLLs inside a PyTorch inference
-    # hook, which causes a hard segfault/crash on Windows. 
-    # Use the frame as-is (with standard CenterCrop if no face was pre-cropped).
-    
-    # 3-channel RGB image
-    img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        # 3-channel RGB image
+        img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
 
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
-    tensor = transform(img).unsqueeze(0).to(_video_device)
-    with torch.no_grad():
-        logits = _video_model(tensor)
-        prob = torch.softmax(logits, dim=1)[0][1].item()  # class 1 = fake
-    return prob
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
+        tensor = transform(img).unsqueeze(0).to(_video_device)
+        with torch.no_grad():
+            logits = _video_model(tensor)
+            prob = torch.softmax(logits, dim=1)[0][1].item()  # class 1 = fake
+        return prob
+    except Exception as e:
+        print(f"    [DEBUG] Frame prediction failed internally: {e}")
+        return 0.5
 
 # Load model at module startup
 if VIDEO_MODEL_PATH.exists():
