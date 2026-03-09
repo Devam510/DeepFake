@@ -81,6 +81,10 @@ def _load_video_model():
         return
     try:
         import torch
+        # CRITICAL FIX for Windows: Prevent silent C++ OpenMP thread crashes 
+        # when running frame-by-frame inference in a loop.
+        torch.set_num_threads(1)
+        
         import timm
         from torchvision import transforms
         _video_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -119,7 +123,6 @@ def _predict_frame(frame_bgr):
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
-    img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
     tensor = transform(img).unsqueeze(0).to(_video_device)
     with torch.no_grad():
         logits = _video_model(tensor)
