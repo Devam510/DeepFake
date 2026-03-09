@@ -152,17 +152,23 @@ def analyze_frames_with_model(frames: list, temp_dir: str = None) -> Dict:
     if not EFFICIENTNET_AVAILABLE or not frames:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
 
+    print("    [DEBUG] Starting analyze_frames_with_model", flush=True)
     probabilities = []
     # Sample up to 30 frames evenly across the video
     step = max(1, len(frames) // 30)
-    sampled = frames[::step][:30]
-
-    for frame in sampled:
+    sampled = frames[::step]
+    
+    print(f"    [DEBUG] Sampled {len(sampled)} frames", flush=True)
+    for i, frame in enumerate(sampled):
         try:
-            prob = _predict_frame(frame)
-            probabilities.append(prob)
-        except Exception:
-            pass
+            print(f"    [DEBUG] Predicting frame {i}", flush=True)
+            p = _predict_frame(frame)
+            print(f"    [DEBUG] Predicted {p}", flush=True)
+            probabilities.append(p)
+        except Exception as e:
+            print(f"    [DEBUG] Error predicting frame {i}: {e}", flush=True)
+            continue
+    print("    [DEBUG] Finished predicting all frames", flush=True)
 
     if not probabilities:
         return {"mean_prob": 0.5, "max_prob": 0.5, "voted_fake": 0.5, "num_frames": 0}
