@@ -50,22 +50,36 @@ _audio_system = None
 _neural_system = None
 _audio_device = None
 
-def _load_advanced_audio_models():
-    global _audio_ensemble_model, _audio_system, _neural_system, _audio_device
+def _load_lgbm_model():
+    """Load just the LightGBM ensemble (fast, always safe in Flask context)."""
+    global _audio_ensemble_model
     if _audio_ensemble_model is not None:
         return True
-    
-    if not ADVANCED_AUDIO_AVAILABLE:
-        return False
-        
+
     model_path = Path(__file__).parent / "models" / "audio_lgbm_ensemble.pkl"
     if not model_path.exists():
         return False
-        
+
     try:
         import joblib
-        _audio_ensemble_model = joblib.load(model_path)
-            
+        _audio_ensemble_model = joblib.load(str(model_path))
+        print(f"  [AudioEnsemble] LightGBM model loaded successfully")
+        return True
+    except Exception as e:
+        print(f"  [AudioEnsemble] Failed to load LightGBM: {e}")
+        return False
+
+
+def _load_neural_models():
+    """Load the heavy PyTorch neural system (optional, may fail on Windows in Flask)."""
+    global _audio_system, _neural_system, _audio_device
+    if _audio_system is not None:
+        return True
+
+    if not ADVANCED_AUDIO_AVAILABLE:
+        return False
+
+    try:
         _audio_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         _audio_system = AdvancedAudioForensics()
         _neural_system = AudioNeuralDetector()
@@ -73,8 +87,13 @@ def _load_advanced_audio_models():
         _neural_system = _neural_system.to(_audio_device)
         return True
     except Exception as e:
-        print(f"  [AudioEnsemble] Failed to load: {e}")
+        print(f"  [AudioEnsemble] Neural model unavailable ({e}), will use 2-layer features")
         return False
+
+
+def _load_advanced_audio_models():
+    """Load all audio models — LightGBM is mandatory, neural is optional."""
+    return _load_lgbm_model()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -117,17 +136,19 @@ def analyze_voice_authenticity(audio_path: str) -> Dict:
         return {"spectral_flatness": 0.0, "mfcc_variance": 0.0, "voice_score": 0.5}
 
     # ----- ADVANCED ML DETECTION -----
-    if _load_advanced_audio_models():
+    if _load_lgbm_model():
         try:
-            data = _audio_system.load_and_preprocess(audio_path)
-            if data is not None:
-                y_new, sr_new = data
+            # Try to load neural model (optional — may fail on Windows in Flask debug mode)
+            neural_ok = _load_neural_models()
 
-                # Layer 1 & 2
+            # Load & preprocess audio
+            y_new, sr_new = librosa.load(audio_path, sr=None, mono=True)
+
+            if neural_ok and _audio_system is not None:
+                # Full 3-layer extraction path
                 l1 = _audio_system.layer1_signal_forensics(y_new, sr_new)
                 l2 = _audio_system.layer2_speech_behavior(y_new, sr_new)
 
-                # Layer 3
                 if sr_new != 16000:
                     y_16k = librosa.resample(y_new, orig_sr=sr_new, target_sr=16000)
                 else:
@@ -155,19 +176,46 @@ def analyze_voice_authenticity(audio_path: str) -> Dict:
                     l3_score,
                     l3_ood_embed,
                 ]
+            else:
+                # Fast 2-layer fallback (no PyTorch needed) — still uses LightGBM for prediction
+                mfccs     = librosa.feature.mfcc(y=y_new, sr=sr_new, n_mfcc=13)
+                mfcc_var  = float(np.mean(np.var(mfccs, axis=1)))
+                flatness  = float(np.mean(librosa.feature.spectral_flatness(y=y_new)))
+                zcr_var   = float(np.var(librosa.feature.zero_crossing_rate(y_new)))
+                rolloff   = librosa.feature.spectral_rolloff(y=y_new, sr=sr_new)
+                rolloff_v = float(np.var(rolloff))
 
-                # Prediction output is [prob_real, prob_fake]
-                X_np = np.array([feature_vector])
-                prob_fake = float(_audio_ensemble_model.predict_proba(X_np)[0][1])
+                feature_vector = [
+                    0.0,         # inst_phase_variance  (unavailable)
+                    0.0,         # rt60_estimate        (unavailable)
+                    mfcc_var,    # mfcc_variance
+                    flatness,    # spectral_flatness_var
+                    zcr_var,     # zcr_variance
+                    0.0,         # codec_banding_score  (unavailable)
+                    0.0,         # pause_ratio          (unavailable)
+                    0.0,         # pitch_drift_over_time(unavailable)
+                    0.0,         # l3_score             (no neural model)
+                    0.0,         # l3_ood_embed         (no neural model)
+                ]
 
-                return {
-                    "spectral_flatness": round(l1.get('spectral_flatness_var', 0), 6),
-                    "mfcc_variance": round(l1.get('mfcc_variance', 0), 4),
-                    "rolloff_variance": 0.0, 
-                    "zcr_variance": round(l1.get('zcr_variance', 0), 8),
-                    "voice_score": round(prob_fake, 4),
-                    "is_advanced_ml": True
-                }
+            # LightGBM prediction — always runs regardless of neural availability
+            X_np = np.array([feature_vector])
+            prob_fake = float(_audio_ensemble_model.predict_proba(X_np)[0][1])
+
+            # Surface-level features for the UI card
+            mfcc_surface = float(np.mean(np.var(
+                librosa.feature.mfcc(y=y_new, sr=sr_new, n_mfcc=13), axis=1)))
+            flat_surface = float(np.mean(librosa.feature.spectral_flatness(y=y_new)))
+            zcr_surface  = float(np.var(librosa.feature.zero_crossing_rate(y_new)))
+
+            return {
+                "spectral_flatness": round(flat_surface, 6),
+                "mfcc_variance":     round(mfcc_surface, 4),
+                "rolloff_variance":  0.0,
+                "zcr_variance":      round(zcr_surface, 8),
+                "voice_score":       round(prob_fake, 4),
+                "is_advanced_ml":    True
+            }
         except Exception as e:
             print(f"  [AudioEnsemble] Advanced extraction failed ({e}), falling back to heuristic...")
             
