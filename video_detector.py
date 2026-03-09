@@ -33,35 +33,15 @@ from typing import Dict, Optional
 import ctypes
 import io
 
-try:
-    # 1. Native Windows API for redirecting the actual console handles
-    STD_ERROR_HANDLE = -12
-    kernel32 = ctypes.windll.kernel32
-    
-    # Create an invisible null file in Windows
-    null_fd = os.open(os.devnull, os.O_RDWR)
-    
-    # 2. Reassign the Python-level FDs
-    old_stderr = os.dup(2)
-    os.dup2(null_fd, 2)
-    
-    # 3. Force the C-Runtime (CRT) to use the new null FD
-    # This specifically catches the Abseil C++ warnings!
-    if os.name == 'nt':
-        import msvcrt
-        libc = ctypes.cdll.msvcrt
-        # Get the OS handle for the null FD
-        null_handle = msvcrt.get_osfhandle(null_fd)
-        # Force the OS handle into the standard error slot
-        kernel32.SetStdHandle(STD_ERROR_HANDLE, null_handle)
+import io
 
-    # 4. Import the noisy modules under the shield
-    from video_processor import extract_frames_for_analysis, get_video_info
-    from temporal_signals import analyze_temporal_signals
-    from biological_signals import analyze_biological_signals
-    from audio_analyzer import analyze_audio
-    import mediapipe as mp # Force early load
-    
+# Import the core analysis modules directly. We'll deal with MediaPipe console 
+# spam instead of completely blinding ourselves to C++ crash messages.
+from video_processor import extract_frames_for_analysis, get_video_info
+from temporal_signals import analyze_temporal_signals
+from biological_signals import analyze_biological_signals
+from audio_analyzer import analyze_audio
+import mediapipe as mp
 finally:
     # We do NOT restore stderr in this specific script because 
     # mediapipe initializes threads asynchronously and will spam later.
