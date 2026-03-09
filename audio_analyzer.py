@@ -162,7 +162,7 @@ def extract_audio(video_path: str, output_path: Optional[str] = None) -> Optiona
 #  SIGNAL 1: Voice Authenticity (MFCC Analysis)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def analyze_voice_authenticity(audio_path: str) -> Dict:
+def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> Dict:
     """
     Analyze voice for AI-generation artifacts.
     If 'audio_lgbm_ensemble.pkl' exists, uses advanced 3-layer ML detection.
@@ -176,8 +176,21 @@ def analyze_voice_authenticity(audio_path: str) -> Dict:
         try:
             y_new, sr_new = librosa.load(audio_path, sr=None, mono=True)
 
-            # Get neural features from subprocess worker
-            feats = _get_neural_features(os.path.abspath(audio_path))
+            # Get neural features
+            feats = {}
+            if offline_mode:
+                # Load models directly in main thread (safe for bulk extraction without Flask)
+                from advanced_detector import AdvancedAudioForensics
+                from audio_neural_model import AudioNeuralDetector
+                l2_detector = AdvancedAudioForensics()
+                l3_detector = AudioNeuralDetector()
+                f2 = l2_detector.extract_features(audio_path)
+                f3 = l3_detector.analyze_audio(audio_path)
+                feats = {**f2, **f3}
+            else:
+                # Get neural features from subprocess worker (safe for Flask)
+                feats = _get_neural_features(os.path.abspath(audio_path))
+                
             neural_ok = feats and "error" not in feats and "l3_score" in feats
 
             if neural_ok:
@@ -389,7 +402,7 @@ def analyze_lip_sync(video_path: str, frames: List[np.ndarray], fps: float = 30.
 #  MAIN API
 # ══════════════════════════════════════════════════════════════════════════════
 
-def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0) -> Dict:
+def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0, offline_mode: bool = False) -> Dict:
     """
     Run all audio analysis on a video.
 
@@ -397,6 +410,7 @@ def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0) 
         video_path: Path to video file
         frames: Extracted video frames (for lip analysis)
         fps: Video frame rate
+        offline_mode: Bypass async worker and run heavy neural models inline
 
     Returns:
         dict with voice and lip-sync scores + overall audio_score
@@ -404,7 +418,7 @@ def analyze_audio(video_path: str, frames: List[np.ndarray], fps: float = 30.0) 
     # Extract audio once for both analyses
     audio_path = extract_audio(video_path)
 
-    voice = analyze_voice_authenticity(audio_path)
+    voice = analyze_voice_authenticity(audio_path, offline_mode=offline_mode)
     lip_sync = analyze_lip_sync(video_path, frames, fps)
 
     # Clean up
