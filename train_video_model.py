@@ -323,6 +323,7 @@ def train_phase_b(max_videos: int = 500):
     from temporal_signals import analyze_temporal_signals
     from biological_signals import analyze_biological_signals
     from audio_analyzer import analyze_audio
+    from video_detector import analyze_frames_with_model
     from tqdm import tqdm
 
     video_exts = {".mp4", ".avi", ".mov", ".webm", ".mkv"}
@@ -414,12 +415,16 @@ def train_phase_b(max_videos: int = 500):
                 continue
 
             # Run analyzers
+            frame_ai = analyze_frames_with_model(frames)
             temporal = analyze_temporal_signals(frames)
             biological = analyze_biological_signals(frames, fps)
             audio = analyze_audio(video_path, frames, fps)
 
             # Build feature vector
             feat = {
+                "frame_ai_prob": frame_ai.get("mean_prob", 0.5),
+                "frame_std": frame_ai.get("std_prob", 0.0),
+                "frame_voted_fake": frame_ai.get("voted_fake", 0.0),
                 "temporal_score": temporal["temporal_score"],
                 "biological_score": biological["biological_score"],
                 "audio_score": audio["audio_score"],
