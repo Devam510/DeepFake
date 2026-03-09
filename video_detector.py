@@ -105,17 +105,14 @@ def _predict_frame(frame_bgr):
     from torchvision import transforms
     from PIL import Image
 
-    # Crop face to match DF40 training format
-    try:
-        from video_processor import detect_face
-        face_bbox = detect_face(frame_bgr)
-        if face_bbox is not None:
-            x, y, w, h = face_bbox
-            face_crop = frame_bgr[y:y+h, x:x+w]
-            if face_crop.size > 0:
-                frame_bgr = face_crop
-    except Exception:
-        pass  # Fall back to full frame
+    # In Phase B, frames are extracted by `video_processor.py` before this
+    # function is called. We should avoid importing `detect_face` inline here
+    # because it dynamically loads MediaPipe C++ DLLs inside a PyTorch inference
+    # hook, which causes a hard segfault/crash on Windows. 
+    # Use the frame as-is (with standard CenterCrop if no face was pre-cropped).
+    
+    # 3-channel RGB image
+    img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
