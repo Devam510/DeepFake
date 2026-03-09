@@ -139,14 +139,20 @@ def extract_audio(video_path: str, output_path: Optional[str] = None) -> Optiona
         output_path = tempfile.mktemp(suffix=".wav")
 
     try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        ffmpeg_exe = "ffmpeg"  # fallback to system path
+
+    try:
         subprocess.run(
-            ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
+            [ffmpeg_exe, "-i", video_path, "-vn", "-acodec", "pcm_s16le",
              "-ar", "16000", "-ac", "1", output_path, "-y"],
             capture_output=True, timeout=60,
         )
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             return output_path
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         pass
 
     return None
