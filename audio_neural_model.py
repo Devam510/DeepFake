@@ -61,6 +61,13 @@ class AudioNeuralDetector(nn.Module):
                  freeze_backbone: bool = True):
         super().__init__()
         
+        # FIX: The transformer and MLP below are un-pretrained. To prevent
+        # them from generating different random embeddings every time the 
+        # worker is restarted, we MUST seed PyTorch.
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+            
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("Please install transformers constraint to use Layer 3: pip install transformers torch")
             

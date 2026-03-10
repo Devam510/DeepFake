@@ -26,14 +26,23 @@ def test():
         res = extract_features(file_path)
         print(f"Extraction result:\n{json.dumps(res, indent=2)}")
         
-        if 'l3_score' in res:
-            feature_vector = [res["l3_score"], res["l3_ood_embed"]]
+        if 'inst_phase_variance' in res:
+            feature_vector = [
+                res.get("inst_phase_variance", 0),
+                res.get("rt60_estimate", 0),
+                res.get("mfcc_variance", 0),
+                res.get("spectral_flatness_var", 0),
+                res.get("zcr_variance", 0),
+                res.get("codec_banding_score", 0),
+                res.get("pause_ratio", 0),
+                res.get("pitch_drift_over_time", 0)
+            ]
             X_np = np.array([feature_vector])
             
             # Load the lightgbm model
             model = joblib.load("models/audio_lgbm_ensemble.pkl")
             prob = model.predict_proba(X_np)[0][1]
-            print(f"\nFinal LightGBM Probability: {prob*100:.2f}%")
+            print(f"\nFinal LightGBM Probability (Acoustic Only): {prob*100:.2f}%")
             
     except Exception as e:
         import traceback

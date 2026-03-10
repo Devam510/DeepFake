@@ -207,12 +207,18 @@ def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> D
             neural_ok = feats and "error" not in feats and "l3_score" in feats
 
             if neural_ok:
-                # Use ONLY the Wav2Vec2 neural features — same as debiased model training.
-                # Heuristic features (mfcc_variance, rt60 etc.) are intentionally excluded
-                # because they cause false positives on noisy real recordings.
+                # Use ONLY the 8 deterministic Acoustic Features to accurately catch ElevenLabs.
+                # The PyTorch Wav2Vec2 MLP weights were historically unseeded and randomized,
+                # meaning their output is structurally invalid at inference.
                 feature_vector = [
-                    feats.get("l3_score",    0),
-                    feats.get("l3_ood_embed", 0),
+                    feats.get("inst_phase_variance", 0),
+                    feats.get("rt60_estimate", 0),
+                    feats.get("mfcc_variance", 0),
+                    feats.get("spectral_flatness_var", 0),
+                    feats.get("zcr_variance", 0),
+                    feats.get("codec_banding_score", 0),
+                    feats.get("pause_ratio", 0),
+                    feats.get("pitch_drift_over_time", 0)
                 ]
                 mfcc_surface = feats.get("mfcc_variance", 0)
                 flat_surface = feats.get("spectral_flatness_var", 0)
