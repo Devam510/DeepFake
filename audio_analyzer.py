@@ -169,7 +169,7 @@ def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> D
     Otherwise, falls back to basic heuristic MFCC checks.
     """
     if not LIBROSA_AVAILABLE or audio_path is None:
-        return {"spectral_flatness": 0.0, "mfcc_variance": 0.0, "voice_score": 0.5}
+        return {"spectral_flatness": 0.0, "mfcc_variance": 0.0, "voice_score": 0.5, "note": "no_audio"}
 
     # ----- ADVANCED ML DETECTION -----
     if _load_lgbm_model():

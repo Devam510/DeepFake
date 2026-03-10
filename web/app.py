@@ -734,6 +734,11 @@ def detect_audio_api():
             'elapsed_seconds': round(time.time() - start_time, 1),
         }
 
+        # UX: Add artificial delay if analysis was too fast (Labor Illusion)
+        elapsed_time = time.time() - start_time
+        if elapsed_time < 2.0:
+            time.sleep(2.0 - elapsed_time)
+
         return jsonify(response)
 
     except Exception as e:
