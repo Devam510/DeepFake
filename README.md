@@ -1,45 +1,39 @@
 # 🔍 DeepFake Detection System
 
-An AI-powered image authentication system that detects AI-generated images using an ensemble of deep learning models, frequency analysis, forensic signal analysis, and cross-model voting.
+A comprehensive multi-modal AI-powered authentication system that detects AI-generated **Images, Videos, and Audio** using an ensemble of deep learning models, frequency analysis, temporal/biological signals, and cross-model voting.
 
 ---
 
 ## ✨ Features
 
-- 🤖 **EfficientNet-B0** — Retrained on **1.7M+ images** from 30+ AI generators (StyleGAN, Stable Diffusion, DALL-E, Midjourney, ChatGPT, Gemini, etc.)
-- 📊 **Statistical Frequency Analysis** — Gradient Boosting on DCT frequency features
-- 📷 **Metadata Forensics** — EXIF, GPS, camera fingerprint detection
-- 🎨 **Social Media Filter Detection** — Detects Instagram/Snapchat/TikTok filters to prevent false positives
-- 🔬 **Forensic Signal Analysis** — Lighting consistency, sensor noise patterns (PRNU), reflection analysis, and GAN frequency fingerprints
-- 🧠 **Cross-Model Meta-Voter** — GradientBoosting trained on 110K images learns optimal signal weighting (replaces hand-tuned rules)
-- 🌐 **Web Interface** — Upload images via browser for instant analysis
-- ⚡ **GPU Accelerated** — CUDA support for fast inference
+- 🖼️ **Image Deepfake Detection** — Retrained EfficientNet-B0 (1.7M+ images), Statistical Frequency Analysis, Metadata Forensics, and Social Media Filter Detection.
+- 🎬 **Video Deepfake Detection** — Frame-by-frame analysis combined with Temporal Signals (SSIM, jitter) and Biological Signals (heartbeat, blinks, skin, micro-expressions).
+- 🎙️ **Audio Deepfake Detection** — Voice Authenticity (LightGBM on Wav2Vec2/MFCC spectral features) + Lip-Audio Synchronization detection (MediaPipe tracking).
+- 🔬 **Forensic Signal Analysis** — Lighting consistency, sensor noise patterns (PRNU), reflection analysis, and GAN frequency fingerprints.
+- 🧠 **Cross-Model Meta-Voters** — Trained gradient boosting meta-voters for both image and video modalities to learn optimal signal weighting.
+- 🌐 **Web Interface** — Upload images, videos, or audio via browser for instant analysis.
+- ⚡ **GPU Accelerated** — CUDA support for fast inference across all models.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-ensemble_detector.py          ← Main orchestrator (7-step pipeline)
-├── [1/7] EfficientNet-B0     ← Deep CNN (primary detector, 80.57% accuracy)
-├── [2/7] Statistical Model   ← Gradient Boosting on frequency features
-├── [3/7] Metadata Analyzer   ← EXIF/GPS/JPEG quality forensics
-├── [4/7] Filter Detector     ← Social media filter detection
-├── [5/7] Processing Level    ← Heavy post-processing detection
-├── [6/7] Forensic Signals    ← Lighting, noise, reflections, GAN fingerprints
-└── [7/7] Cross-Model Voter   ← Trained meta-voter (GradientBoosting)
+ensemble_detector.py          ← Image orchestrator (7-step pipeline)
+video_detector.py             ← Video orchestrator (Temporal, Biological, Audio, Frames)
+audio_analyzer.py             ← Audio orchestrator (Voice Authenticity & Lip Sync)
 
-forensic_signals.py           ← 4 physics-based forensic analyzers
+├── [Image] EfficientNet-B0, Statistical, Metadata, Filter, Forensics
+├── [Video] Temporal Signals (jitter, SSIM), Biological Signals (heartbeat, blink rate)
+└── [Audio] Voice Authenticity (Wav2Vec2, MFCC), Lip-Audio Sync (MediaPipe)
+
+forensic_signals.py           ← 4 physics-based forensic analyzers for images
 ├── LightingAnalyzer          ← Shadow direction consistency per quadrant
 ├── NoisePatternAnalyzer      ← Sensor noise (PRNU) uniformity across patches
-├── ReflectionAnalyzer        ← Specular highlight consistency
 └── GANFingerprintAnalyzer    ← 2D FFT spectral peak detection
 
-meta_voter.py                 ← Cross-model voting meta-learner
-├── Trains on 110K labeled images
-├── Compares GradientBoosting vs RandomForest vs LogisticRegression
-├── Checkpoint + resume support for long training runs
-└── Falls back to hand-tuned logic if not trained
+meta_voter.py                 ← Image cross-model voting meta-learner
+video_meta_voter.py           ← Video cross-model voting meta-learner
 
 web/app.py                    ← Flask web server
 src/
@@ -64,12 +58,17 @@ python web/app.py
 # Open http://localhost:5000
 ```
 
-### Run CLI
+### Run CLI Prediction (Image)
 ```bash
 python ensemble_detector.py path/to/image.jpg
 ```
 
-### Run Forensic Analysis Only
+### Run CLI Prediction (Video & Audio)
+```bash
+python video_detector.py path/to/video.mp4
+```
+
+### Run Forensic Analysis Only (Image)
 ```bash
 python forensic_signals.py path/to/image.jpg
 ```
