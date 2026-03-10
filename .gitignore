@@ -50,3 +50,6 @@ temp/
 _*.py
 *.txt
 css_chunk.txt
+
+# Uploads
+web/uploads/

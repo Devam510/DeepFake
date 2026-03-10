@@ -476,11 +476,15 @@ def detect():
 
     except Exception as e:
         import traceback
+        tb_str = traceback.format_exc()
         print(f"[ERROR] Detection failed: {e}")
-        print(traceback.format_exc())
+        print(tb_str)
         if os.path.exists(filepath):
-            os.remove(filepath)
-        return jsonify({'error': f'Detection failed: {str(e)}'}), 500
+            try:
+                os.remove(filepath)
+            except:
+                pass
+        return jsonify({'error': f"Detection failed: {str(e)}\n\nTraceback:\n{tb_str}"}), 500
 
 
 @app.route('/uploads/<filename>')
@@ -603,9 +607,10 @@ def detect_video_api():
 
     except Exception as e:
         import traceback
+        tb_str = traceback.format_exc()
         print(f"[ERROR] Video detection failed: {e}")
-        print(traceback.format_exc())
-        return jsonify({'error': f'Video detection failed: {str(e)}'}), 500
+        print(tb_str)
+        return jsonify({'error': f'Video detection failed: {str(e)}\n\nTraceback:\n{tb_str}'}), 500
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)

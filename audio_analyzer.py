@@ -194,35 +194,30 @@ def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> D
             neural_ok = feats and "error" not in feats and "l3_score" in feats
 
             if neural_ok:
+                # Use ONLY the Wav2Vec2 neural features — same as debiased model training.
+                # Heuristic features (mfcc_variance, rt60 etc.) are intentionally excluded
+                # because they cause false positives on noisy real recordings.
                 feature_vector = [
-                    feats.get("inst_phase_variance",   0),
-                    feats.get("rt60_estimate",         0),
-                    feats.get("mfcc_variance",         0),
-                    feats.get("spectral_flatness_var", 0),
-                    feats.get("zcr_variance",          0),
-                    feats.get("codec_banding_score",   0),
-                    feats.get("pause_ratio",           0),
-                    feats.get("pitch_drift_over_time", 0),
-                    feats.get("l3_score",              0),
-                    feats.get("l3_ood_embed",          0),
+                    feats.get("l3_score",    0),
+                    feats.get("l3_ood_embed", 0),
                 ]
                 mfcc_surface = feats.get("mfcc_variance", 0)
                 flat_surface = feats.get("spectral_flatness_var", 0)
                 zcr_surface  = feats.get("zcr_variance", 0)
             else:
-                # 2-layer librosa fallback — no neural features
+                # Worker unavailable — cannot run debiased model without l3_score.
+                # Fall through to heuristic path below.
                 mfccs     = librosa.feature.mfcc(y=y_new, sr=sr_new, n_mfcc=13)
                 mfcc_var  = float(np.mean(np.var(mfccs, axis=1)))
                 flatness  = float(np.mean(librosa.feature.spectral_flatness(y=y_new)))
                 zcr_var   = float(np.var(librosa.feature.zero_crossing_rate(y_new)))
-                feature_vector = [
-                    np.nan, np.nan,
-                    mfcc_var, flatness, zcr_var,
-                    np.nan, np.nan, np.nan, np.nan, np.nan,
-                ]
+                feature_vector = None   # trigger fallback
                 mfcc_surface = mfcc_var
                 flat_surface = flatness
                 zcr_surface  = zcr_var
+
+            if feature_vector is None:
+                raise ValueError("Neural worker unavailable — falling back to heuristic")
 
             X_np = np.array([feature_vector])
             prob_fake = float(_audio_ensemble_model.predict_proba(X_np)[0][1])
@@ -236,7 +231,11 @@ def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> D
                 "is_advanced_ml":    True
             }
         except Exception as e:
-            print(f"  [AudioEnsemble] Advanced extraction failed ({e}), falling back to heuristic...")
+            import traceback
+            import sys
+            print(f"  [AudioEnsemble] Advanced extraction failed:")
+            traceback.print_exc(file=sys.stdout)
+            print("  Falling back to heuristic...")
             
     # ----- FALLBACK BASIC HEURISTIC -----
     try:

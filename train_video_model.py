@@ -403,7 +403,8 @@ def train_phase_b(max_videos: int = 500):
     remaining = [(p, l) for p, l in sources if p not in processed_paths]
     print(f"  Remaining: {len(remaining)} videos")
 
-    for i, (video_path, label) in enumerate(tqdm(remaining, desc="  Extracting features", unit="vid")):
+    import sys
+    for i, (video_path, label) in enumerate(tqdm(remaining, desc="  Extracting features", unit="vid", file=sys.stdout)):
         try:
             # Get video info
             info = get_video_info(video_path)

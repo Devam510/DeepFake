@@ -74,16 +74,16 @@ def extract_features(audio_path: str) -> dict:
                 l3_ood   = ood_embed.cpu().numpy().mean()
 
             return {
-                "inst_phase_variance":  l1.get("inst_phase_variance", 0),
-                "rt60_estimate":        l1.get("rt60_estimate", 0),
-                "mfcc_variance":        l1.get("mfcc_variance", 0),
-                "spectral_flatness_var":l1.get("spectral_flatness_var", 0),
-                "zcr_variance":         l1.get("zcr_variance", 0),
-                "codec_banding_score":  l1.get("codec_banding_score", 0),
-                "pause_ratio":          l2.get("pause_ratio", 0),
-                "pitch_drift_over_time":l2.get("pitch_drift_over_time", 0),
-                "l3_score":             l3_score,
-                "l3_ood_embed":         l3_ood,
+                "inst_phase_variance":   float(l1.get("inst_phase_variance", 0)),
+                "rt60_estimate":         float(l1.get("rt60_estimate", 0)),
+                "mfcc_variance":         float(l1.get("mfcc_variance", 0)),
+                "spectral_flatness_var": float(l1.get("spectral_flatness_var", 0)),
+                "zcr_variance":          float(l1.get("zcr_variance", 0)),
+                "codec_banding_score":   float(l1.get("codec_banding_score", 0)),
+                "pause_ratio":           float(l2.get("pause_ratio", 0)),
+                "pitch_drift_over_time": float(l2.get("pitch_drift_over_time", 0)),
+                "l3_score":              float(l3_score),
+                "l3_ood_embed":          float(l3_ood),
             }
         else:
             # 2-layer fallback if AdvancedAudioForensics not available
