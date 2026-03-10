@@ -605,24 +605,12 @@ def ensemble_predict(image_path: str) -> dict:
             print(
                 f"      Reason: {filter_type} filter ({filter_confidence:.0%}) + {disagreement:.0%} disagreement"
             )
-    elif ensemble_prob > 0.85:
+    elif ensemble_prob >= 0.75:
         # Very high probability - confident it's AI
         verdict = "AI-GENERATED"
         confidence = "HIGH"
         if disagreement > 0.6:
-            print(
-                "  [!] Note: Model disagreement detected but probability is very high"
-            )
-        # Widen confidence for moderate processing
-        if processing_level == "moderate_processing":
-            confidence = "MEDIUM"
-            print("  [!] Note: Moderate processing detected - confidence reduced")
-    elif ensemble_prob < 0.25:
-        # Very low probability - confident it's real
-        verdict = "LIKELY REAL"
-        confidence = "HIGH"
-        if disagreement > 0.6:
-            print("  [!] Note: Model disagreement detected but probability is very low")
+            print("  [!] Note: Model disagreement detected but probability is very high")
         # Widen confidence for moderate processing
         if processing_level == "moderate_processing":
             confidence = "MEDIUM"
@@ -633,17 +621,23 @@ def ensemble_predict(image_path: str) -> dict:
         verdict = "UNCERTAIN"
         confidence = "LOW"
         print("  [!] High model conflict - cannot make reliable determination")
-    elif ensemble_prob > 0.6:
-        verdict = "AI-GENERATED"
-        confidence = "MEDIUM" if processing_level == "moderate_processing" else "MEDIUM"
-    elif ensemble_prob > 0.5:
-        # Above 50% = more likely AI than real, but not confident enough for AI-GENERATED
-        verdict = "POSSIBLY AI"
-        confidence = "MEDIUM" if processing_level != "moderate_processing" else "LOW"
-    else:
-        # Below 50% = more likely real than AI
+    elif ensemble_prob >= 0.55:
+        verdict = "LIKELY AI-GENERATED"
+        confidence = "MEDIUM"
+    elif ensemble_prob >= 0.40:
+        verdict = "UNCERTAIN"
+        confidence = "LOW"
+    elif ensemble_prob >= 0.25:
         verdict = "LIKELY REAL"
-        confidence = "MEDIUM" if processing_level != "moderate_processing" else "LOW"
+        confidence = "MEDIUM"
+    else:
+        verdict = "REAL"
+        confidence = "HIGH"
+        if disagreement > 0.6:
+            print("  [!] Note: Model disagreement detected but probability is very low")
+        if processing_level == "moderate_processing":
+            confidence = "MEDIUM"
+            print("  [!] Note: Moderate processing detected - confidence reduced")
 
     print(f"  Confidence:              {confidence}")
     print(f"\n  FINAL VERDICT: {verdict}")
