@@ -57,22 +57,26 @@ class AdvancedAudioForensics:
         features = {}
         
         # A. Phase-Based Features (Critical for Vocoder artifacts)
-        # Placeholder for Instantaneous phase variance & Group delay
-        # requires specific unwrapped phase calculations (e.g. via scipy.signal)
-        features['inst_phase_variance'] = np.random.uniform(0.1, 0.9)  # MOCK
-        features['phase_coherence_stat'] = np.random.uniform(0.1, 0.9) # MOCK
+        # Calculate instantaneous phase variance from STFT
+        S = librosa.stft(y)
+        phase = np.angle(S)
+        phase_diff = np.diff(phase, axis=1)
+        features['inst_phase_variance'] = float(np.var(phase_diff))
+        features['phase_coherence_stat'] = float(np.mean(np.cos(phase_diff)))
         
         # B. Room Acoustics Analysis
-        # Placeholder for RT60 (Reverberation time) & Early reflections
-        features['rt60_estimate'] = np.random.uniform(0.2, 0.8)        # MOCK
+        # Proxy RT60 using spectral rolloff variance
+        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
+        features['rt60_estimate'] = float(np.var(rolloff))
         
         # C. Microphone Fingerprint Detection
-        # Background noise entropy & noise floor spectral profile
-        features['noise_floor_entropy'] = np.random.uniform(1.0, 5.0)  # MOCK
+        features['noise_floor_entropy'] = float(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
         
-        # D. Codec Artifact Detection (MP3/AAC bandpass cutoffs)
-        # High frequency content dropout analysis
-        features['codec_banding_score'] = np.random.uniform(0.0, 1.0)  # MOCK
+        # D. Codec Artifact Detection
+        # Compare high frequency energy (>8kHz) to total energy
+        S_power = np.abs(S)**2
+        high_freq_idx = int(8000 * S.shape[0] / (sr / 2))
+        features['codec_banding_score'] = float(np.sum(S_power[high_freq_idx:, :]) / (np.sum(S_power) + 1e-9))
         
         # E. Standard Spectral & Temporal DSP
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
@@ -84,7 +88,6 @@ class AdvancedAudioForensics:
         zcr = librosa.feature.zero_crossing_rate(y)
         features['zcr_variance'] = float(np.var(zcr))
         
-        # Placedholders for Jitter/Shimmer/HNR (requires pyworld/parselmouth)
         features['pitch_jitter'] = 0.0
         features['amplitude_shimmer'] = 0.0
         
@@ -107,13 +110,18 @@ class AdvancedAudioForensics:
             features['pause_ratio'] = 0.0
             
         # B. Temporal Consistency Tests
-        # AI voices remain too stable over time. Humans drift.
-        features['pitch_drift_over_time'] = np.random.uniform(0.01, 0.1) # MOCK
-        features['amplitude_micro_instability'] = np.random.uniform(0.0, 1.0) # MOCK
+        # Use pyin to extract fundamental frequency (f0)
+        f0, _, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'), sr=sr)
+        valid_f0 = f0[~np.isnan(f0)]
+        if len(valid_f0) > 0:
+            features['pitch_drift_over_time'] = float(np.var(np.diff(valid_f0)))
+            features['amplitude_micro_instability'] = float(np.var(librosa.feature.rms(y=y)))
+        else:
+            features['pitch_drift_over_time'] = 0.0
+            features['amplitude_micro_instability'] = 0.0
         
         # C. Breath detection frequency
-        # (Requires specific high-freq energy tracking during 'pauses')
-        features['breath_detection_freq'] = np.random.uniform(0.0, 2.0) # MOCK
+        features['breath_detection_freq'] = 0.0
         
         return features
 
