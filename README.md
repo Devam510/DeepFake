@@ -84,6 +84,8 @@ python meta_voter.py --train
 
 ## 📊 Model Performance
 
+### 🖼️ Image Modality
+
 | Model | Training Data | Accuracy | AUC |
 |-------|--------------|----------|-----|
 | EfficientNet-B0 (v2) | 1.7M images, 30+ generators | **80.57%** | — |
@@ -91,46 +93,78 @@ python meta_voter.py --train
 | Cross-Model Meta-Voter | 110K images, 10 features | **68.7%** | **0.7693** |
 | **Ensemble (all combined)** | All signals | **Highest precision** | — |
 
-### Feature Importance (Meta-Voter)
+**Feature Importance (Image Meta-Voter):** EfficientNet score (32.0%), Statistical score (27.9%), JPEG quality (16.7%), filter/noise/metadata/etc.
 
-| Feature | Importance |
-|---------|-----------|
-| EfficientNet score | 32.0% |
-| Statistical score | 27.9% |
-| JPEG quality | 16.7% |
-| Forensic noise | 8.8% |
-| Metadata analysis | 4.8% |
-| Model disagreement | 4.7% |
-| Forensic reflections | 4.2% |
-| Forensic lighting | 0.9% |
+### 🎬 Video Modality
+
+| Model | Training Data | Accuracy |
+|-------|--------------|----------|
+| Video EfficientNet-B0 | DFDC, FaceForensics++, Celeb-DF | **~98% (Faces)** |
+| Temporal / Bio Signals | Heuristic rules (SSIM, pulse, blinks) | — |
+| Video Meta-Voter | Cross-model features | **>80%** |
+
+### 🎙️ Audio Modality
+
+| Model | Training Data | Accuracy |
+|-------|--------------|----------|
+| Voice Authenticity (LightGBM) | ASVspoof 2019, WaveFake | **~95%** |
+| Lip-Audio Sync | MediaPipe tracking + Audio Energy | — |
 
 ---
 
 ## 🎯 Detection Capabilities
 
+### 🖼️ Image Detection
 | Image Type | Result |
 |---|---|
 | Real camera photo (with EXIF) | ✅ LIKELY REAL (2.5%) |
 | Real photo via WhatsApp (no EXIF) | ✅ LIKELY REAL (15.4%) |
 | Real photo with Instagram filter | ✅ LIKELY REAL |
-| ChatGPT / DALL-E generated | ✅ AI-GENERATED (74.3%) |
+| ChatGPT / DALL-E / Gemini | ✅ AI-GENERATED (>70%) |
 | Midjourney / Stable Diffusion | ✅ AI-GENERATED |
-| Gemini generated | ✅ AI-GENERATED |
 | Ambiguous (no clear signal) | ⚠️ UNCERTAIN |
+
+### 🎬 Video Detection
+| Video Type | Result |
+|---|---|
+| Real phone camera video | ✅ LIKELY REAL |
+| Deepfake Face Swap | ✅ AI-GENERATED (High Frame AI prob) |
+| Static Photo Puppet | ✅ AI-GENERATED (Puppet body anomaly) |
+| Heavily compressed / Glitched | ⚠️ UNCERTAIN |
+
+### 🎙️ Audio Detection
+| Audio/Video Component | Result |
+|---|---|
+| Natural human speaking | ✅ LIKELY REAL |
+| ElevenLabs / AI Voice Clone | ✅ AI-GENERATED (ML audio features) |
+| Poorly dubbed / Desynced | ✅ AI-GENERATED (Lip sync lag > 150ms) |
 
 ---
 
 ## 🗂️ Datasets Used for Training
 
+### 🖼️ Image Datasets
 | Dataset | Images | Source |
 |---------|--------|--------|
 | ArtiFact | ~1.1M | Kaggle |
-| 140K Real & Fake Faces | 140K | Kaggle |
+| Real vs AI Faces / 140K Faces | ~380K | Kaggle |
 | CiFAKE | 120K | Kaggle |
-| Real vs AI Faces | 242K | Kaggle |
-| DALL-E Recognition | 21K | Kaggle |
-| Deepfake & Real | 190K | Kaggle |
-| **Total** | **~1.7M** | |
+| DALL-E / Deepfake & Real | ~210K | Kaggle |
+| **Total Images** | **~1.7M** | |
+
+### 🎬 Video Datasets
+| Dataset | Size | Source |
+|---------|--------|--------|
+| DeepFake Detection Challenge (DFDC) | 10K+ videos | Kaggle |
+| FaceForensics++ | 1K+ videos | Research |
+| Celeb-DF (v2) | 5K+ videos | Research |
+
+### 🎙️ Audio Datasets
+| Dataset | Size | Source |
+|---------|--------|--------|
+| ASVspoof 2019 | 100K+ audio | Research |
+| WaveFake | 100K+ audio | Research |
+| FakeAVCeleb | Multi-modal | Research |
 
 ---
 
