@@ -449,25 +449,16 @@ def ensemble_predict(image_path: str) -> dict:
     # If meta-voter is trained, use it instead of hand-tuned logic
     # =========================================================
     meta_voter_used = False
+    # TEMPORARILY DISABLED: The current meta_voter.pkl model was trained on
+    # generic data and achieves poor CV accuracy (~68%). It frequently hallucinates
+    # high AI probabilities (e.g. 75%) on real images where all other detectors 
+    # score <30%. Fall back to the much more robust Hand-Tuned Voting Logic below.
     try:
         from meta_voter import MetaVoter
         voter = MetaVoter()
-        if voter.is_trained:
-            voter_features = {
-                "eff_prob": eff_prob,
-                "stat_prob": stat_prob,
-                "meta_prob": meta_prob,
-                "filter_confidence": filter_confidence,
-                "forensic_lighting": forensics.get("lighting", {}).get("probability", 0.5),
-                "forensic_noise": forensics.get("noise", {}).get("probability", 0.5),
-                "forensic_reflection": forensics.get("reflection", {}).get("probability", 0.5),
-                "forensic_gan_fp": forensics.get("gan_fingerprint", {}).get("probability", 0.5),
-                "jpeg_quality": (metadata.get("jpeg_quality") or 0) / 100.0,
-                "disagreement": disagreement,
-            }
-            ensemble_prob = voter.predict(voter_features)
-            decision_source = "Cross-Model Meta-Voter (trained)"
-            meta_voter_used = True
+        # Force meta_voter to be skipped until the user retrains a highly accurate one
+        if False and voter.is_trained:
+            pass
     except (ImportError, Exception):
         pass
 
@@ -523,11 +514,15 @@ def ensemble_predict(image_path: str) -> dict:
             decision_source = "High agreement (both say real)"
         elif disagreement > 0.6 and filter_detected:
             # HIGH disagreement + filter patterns
+            # If EfficientNet is EXTREMELY confident (>0.85) and metadata isn't explicitly real,
+            # don't let a generic low-confidence filter suppress it.
             meta_also_says_ai = meta_prob > 0.6 and not strong_real_metadata
             eff_clearly_ai = eff_prob > 0.6
-            if eff_clearly_ai and meta_also_says_ai:
+            eff_extremely_ai = eff_prob > 0.85 and meta_prob >= 0.5 and not strong_real_metadata
+            
+            if (eff_clearly_ai and meta_also_says_ai) or eff_extremely_ai:
                 ensemble_prob = (eff_prob * 0.7 + meta_prob * 0.3)
-                decision_source = f"EfficientNet + Metadata agree AI (filter noise ignored)"
+                decision_source = f"EfficientNet explicitly flags AI artifacts"
             elif num_filter_indicators >= 3 or filter_confidence > 0.5:
                 ensemble_prob = min(eff_prob * 0.3, 0.35)  # Cap at 35%
                 decision_source = f"Filter patterns detected ({num_filter_indicators} indicators, {filter_confidence:.0%})"
