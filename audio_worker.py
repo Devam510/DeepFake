@@ -58,9 +58,12 @@ def extract_features(audio_path: str) -> dict:
         return {"error": "librosa not available"}
 
     try:
-        y, sr = librosa.load(audio_path, sr=None, mono=True)
-
         if _system is not None:
+            data = _system.load_and_preprocess(audio_path)
+            if data is None:
+                return {"error": "Failed to load/preprocess audio"}
+            y, sr = data
+            
             l1 = _system.layer1_signal_forensics(y, sr)
             l2 = _system.layer2_speech_behavior(y, sr)
 
