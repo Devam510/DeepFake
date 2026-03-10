@@ -112,8 +112,21 @@ def _get_neural_features(audio_path: str) -> dict:
     try:
         _worker_proc.stdin.write(audio_path + "\n")
         _worker_proc.stdin.flush()
-        result_line = _worker_proc.stdout.readline()
-        return _json.loads(result_line)
+        
+        # Read lines until we get valid JSON, ignoring PyTorch/Librosa warnings
+        for _ in range(50):
+            result_line = _worker_proc.stdout.readline()
+            if not result_line:
+                break
+            try:
+                data = _json.loads(result_line)
+                if isinstance(data, dict) and ("l3_score" in data or "error" in data):
+                    return data
+            except _json.JSONDecodeError:
+                # Ignore non-JSON warning lines from the transformer model
+                continue
+                
+        return {"error": "No valid JSON output from worker subprocess"}
     except Exception as e:
         return {"error": str(e)}
 

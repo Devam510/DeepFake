@@ -706,6 +706,16 @@ def detect_audio_api():
         else:
             summary = f"Audio analysis inconclusive: {overall}% AI likelihood. The acoustic anomalies were borderline."
 
+        # Print summary to terminal
+        print(f"\n  {'=' * 60}")
+        print(f"  AUDIO ENSEMBLE DETECTOR - {file.filename}")
+        print(f"  {'=' * 60}")
+        print(f"  Combined AI Probability: {ai_prob:.1%}")
+        print(f"  Decision Source:         {method}")
+        print(f"  Confidence:              {confidence}")
+        print(f"  FINAL VERDICT: {verdict}")
+        print(f"  {'=' * 60}\n")
+
         response = {
             'success':       True,
             'timestamp':     datetime.now().isoformat(),
