@@ -109,9 +109,19 @@ def _predict_frame(frame_bgr):
         import torch
         from torchvision import transforms
         from PIL import Image
+        from video_processor import detect_face
+
+        # Crop face first to match training data
+        face_bbox = detect_face(frame_bgr)
+        if face_bbox is not None:
+            x, y, w, h = face_bbox
+            face_bgr = frame_bgr[y:y+h, x:x+w]
+        else:
+            # Fall back to full frame if no face detected
+            face_bgr = frame_bgr
 
         # 3-channel RGB image
-        img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        img = Image.fromarray(cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB))
 
         transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -135,8 +145,9 @@ if VIDEO_MODEL_PATH.exists():
 try:
     from video_meta_voter import VideoMetaVoter
     _voter = VideoMetaVoter()
-    # Only use meta-voter if it has decent accuracy (>65%)
-    META_VOTER_AVAILABLE = _voter.is_trained() and _voter.cv_accuracy > 0.65
+    # TEMPORARY FIX: Force False until user retrains it, because it was trained
+    # on full un-cropped frames that caused hallucinated CNN inputs.
+    META_VOTER_AVAILABLE = False
 except ImportError:
     META_VOTER_AVAILABLE = False
 
