@@ -90,6 +90,7 @@ def extract_features(audio_path: str) -> dict:
             }
         else:
             # 2-layer fallback if AdvancedAudioForensics not available
+            y, sr = librosa.load(audio_path, sr=None, mono=True)
             mfccs  = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
             return {
                 "mfcc_variance":        float(np.mean(np.var(mfccs, axis=1))),
