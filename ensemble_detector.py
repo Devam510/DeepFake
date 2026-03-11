@@ -514,21 +514,31 @@ def ensemble_predict(image_path: str) -> dict:
             decision_source = "High agreement (both say real)"
         elif disagreement > 0.6 and filter_detected:
             # HIGH disagreement + filter patterns
-            # If EfficientNet is EXTREMELY confident (>0.85) and metadata isn't explicitly real,
-            # don't let a generic low-confidence filter suppress it.
-            meta_also_says_ai = meta_prob > 0.6 and not strong_real_metadata
+            # Rules: only suppress AI signal if there is STRONG filter evidence.
+            # Weak generic 'other' filters at low confidence must NOT override a clear AI signal.
+            meta_also_says_ai = meta_prob > 0.5 and not strong_real_metadata
             eff_clearly_ai = eff_prob > 0.6
-            eff_extremely_ai = eff_prob > 0.85 and meta_prob >= 0.5 and not strong_real_metadata
+            # Lowered threshold: 0.75 (was 0.85) — catches 80%+ EfficientNet AI signals
+            eff_extremely_ai = eff_prob > 0.75 and not strong_real_metadata
+            # A filter must be a known social-media app OR generic with high confidence + many indicators
+            # to be allowed to suppress the AI signal
+            filter_is_credible = (is_known_app_filter and filter_confidence > 0.6) or \
+                                  (is_strong_generic_filter and num_filter_indicators >= 3 and filter_confidence > 0.55)
             
-            if (eff_clearly_ai and meta_also_says_ai) or eff_extremely_ai:
+            if eff_extremely_ai and not filter_is_credible:
+                # Strong AI signal, filter evidence is too vague to override
+                ensemble_prob = (eff_prob * 0.7 + meta_prob * 0.3)
+                decision_source = "EfficientNet explicitly flags AI artifacts"
+            elif (eff_clearly_ai and meta_also_says_ai) or eff_extremely_ai:
                 ensemble_prob = (eff_prob * 0.7 + meta_prob * 0.3)
                 decision_source = f"EfficientNet explicitly flags AI artifacts"
-            elif num_filter_indicators >= 3 or filter_confidence > 0.5:
+            elif filter_is_credible and num_filter_indicators >= 3:
                 ensemble_prob = min(eff_prob * 0.3, 0.35)  # Cap at 35%
                 decision_source = f"Filter patterns detected ({num_filter_indicators} indicators, {filter_confidence:.0%})"
             else:
-                ensemble_prob = min(eff_prob * 0.5, 0.50)  # Cap at 50%
-                decision_source = f"Possible filter effects ({filter_confidence:.0%})"
+                # Weak filter, moderate agreement — trust EfficientNet more
+                ensemble_prob = eff_prob * 0.6 + meta_prob * 0.4
+                decision_source = f"EfficientNet+Metadata weighted (weak filter: {filter_confidence:.0%})"
         elif disagreement > 0.6:
             # HIGH disagreement without strong filter evidence
             ensemble_prob = min(eff_prob, stat_prob) * 0.6 + max(eff_prob, stat_prob) * 0.4
