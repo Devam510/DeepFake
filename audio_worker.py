@@ -29,7 +29,10 @@ try:
     from audio_forensics import AdvancedAudioForensics
     from audio_neural_model import AudioNeuralDetector
     NEURAL_AVAILABLE = True
-except Exception:
+except Exception as e:
+    # Print to stderr so it doesn't break the JSON handshake on stdout
+    import sys
+    print(f"DEBUG: Import failure in audio_worker.py: {e}", file=sys.stderr)
     NEURAL_AVAILABLE = False
 
 # Load models once at startup

@@ -89,14 +89,26 @@ def _start_worker():
             [sys.executable, worker_path],
             stdin=_subprocess.PIPE,
             stdout=_subprocess.PIPE,
-            stderr=_subprocess.DEVNULL,
+            stderr=None,
             text=True,
             bufsize=1,  # line-buffered
         )
-        # Wait for ready signal
-        ready_line = _worker_proc.stdout.readline()
-        info = _json.loads(ready_line)
-        neural_ok = info.get("neural", False)
+        # Wait for ready signal (skip any library warnings)
+        neural_ok = False
+        for _ in range(20):
+            ready_line = _worker_proc.stdout.readline()
+            if not ready_line: break
+            try:
+                info = _json.loads(ready_line)
+                if "status" in info and info["status"] == "ready":
+                    # If the worker sent an error immediately, print it
+                    if "error" in info:
+                        print(f"  [AudioWorker] Load Error: {info['error']}")
+                    neural_ok = info.get("neural", False)
+                    break
+            except _json.JSONDecodeError:
+                continue
+                
         print(f"  [AudioWorker] Subprocess started (neural={'yes' if neural_ok else 'no'})")
         return True
     except Exception as e:
@@ -218,7 +230,9 @@ def analyze_voice_authenticity(audio_path: str, offline_mode: bool = False) -> D
                     feats.get("zcr_variance", 0),
                     feats.get("codec_banding_score", 0),
                     feats.get("pause_ratio", 0),
-                    feats.get("pitch_drift_over_time", 0)
+                    feats.get("pitch_drift_over_time", 0),
+                    feats.get("l3_score", 0),
+                    feats.get("l3_ood_embed", 0)
                 ]
                 mfcc_surface = feats.get("mfcc_variance", 0)
                 flat_surface = feats.get("spectral_flatness_var", 0)
